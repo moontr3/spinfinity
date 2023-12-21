@@ -1,5 +1,4 @@
 # LIGRARIES
-import glob
 import pygame as pg
 from typing import *
 

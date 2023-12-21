@@ -5,6 +5,7 @@ import pygame as pg
 import easing_functions as easing
 import draw
 import time
+from typing import *
 
 pg.init()
 
@@ -41,6 +42,13 @@ halfy = windowy//2 # half of the Y window size
 
 # app functions 
 
+def lerp(a:float, b:float, t:float):
+    '''
+    Interpolates between A and B.
+    '''
+    t = max(0,min(1,t))
+    return (1 - t) * a + t * b
+
 def draw_debug():
     '''
     Draws debug data on top of the screen.
@@ -75,21 +83,168 @@ def update_size():
 
 
 # app classes
+
+class MapData:
+    def __init__(self, data:dict):
+        '''
+        Used to represent map data.
+        '''
+        self.image:str = data['image']
+        self.size: Union[int,int] = data['size']
+        self.tile_size: int = data['tile_size']
+
+        self.player_spawn: Union[int,int] = data['spawn']
+        self.enemy_spawn_locations: List[Union[int,int]] = data['enemy_spawns']
+
+        self.pixel_size = [
+            self.size[0]*self.tile_size,
+            self.size[1]*self.tile_size
+        ]
+        
+
+class PlayerData:
+    def __init__(self, data:dict):
+        '''
+        Used to represent player data.
+        '''
+        self.speed = data['speed']
+        self.health = data['health']
+        self.damage = data['damage']
+        self.stamina = data['stamina']
+        self.u_points = data['upoints'] # amount of points needed to reach ultimate
+
     
-class App:
-    def __init__(self):
-        pass
+class Dungeon:
+    def __init__(self, player:PlayerData, map:MapData):
+        '''
+        The entire gameplay.
+        '''
+        # map and camers
+        self.map: MapData = map
+
+        self.cam_center = map.player_spawn
+        self.cam_smooth = [
+            map.player_spawn[0],
+            map.size[1]+10
+        ]
+
+        # player
+        self.player: PlayerData = player
+        self.position: Union[float,float] = map.player_spawn
+        self.velocity: Union[float,float] = [0,0]
+        self.health: int = player.health
+        self.damage: int = player.damage
+        self.stamina: float = player.stamina
+        self.stamina_restore: float = 0.0
+        
+        # stats
+        self.score: int = 0
+        self.points: int = 0
+        self.level: int = 0
+        self.kills_to_next_level: int = 5
+
+    def local_to_global(self, pos):
+        '''
+        Converts map coordinates to coordinates on screen.
+
+        Even I don't know what's all this math already.
+        '''
+        return [
+            halfx-(self.cam_smooth[0]-pos[0])*self.map.tile_size,
+            halfy-(self.cam_smooth[1]-pos[1])*self.map.tile_size
+        ]
+    
+    def update_player(self):
+        '''
+        Updates the player.
+        '''
+        # checking if the player is moving rn
+        moving = [i for i in [keys[pg.K_w], keys[pg.K_a], keys[pg.K_s], keys[pg.K_d]] if i]
+        # calculating how fast should he move
+        speed = self.player.speed + (int(keys[pg.K_LSHIFT] and self.stamina > 0)*self.player.speed/1.5)
+        # i'm too lazy to learn vectors so this is a 'cheat code'
+        # on how to make the player walk diagonally with the same
+        # speed as straight
+        if len(moving) == 2:
+            speed *= 0.78 # completely made up number
+                          # definitely not rounded up pi/5
+
+        # decreasing stamina when sprinting
+        if keys[pg.K_LSHIFT] and moving and self.stamina > 0:
+            self.stamina -= td
+            self.stamina_restore = 3
+        # resting to restore stamina
+        elif self.stamina_restore > 0:
+            self.stamina_restore -= td
+        # restoring stamina when rested
+        elif self.stamina < self.player.stamina:
+            self.stamina += td*2
+
+        # moving player
+        if moving:
+            if keys[pg.K_w]:
+                self.position[1] -= speed*td
+            if keys[pg.K_s]:
+                self.position[1] += speed*td
+            if keys[pg.K_a]:
+                self.position[0] -= speed*td
+            if keys[pg.K_d]:
+                self.position[0] += speed*td
+
+            # making the player not go outside the map
+            self.position[0] = max(0.5, min(self.map.size[0]-0.5, self.position[0]))
+            self.position[1] = max(0.5, min(self.map.size[1]-0.5, self.position[1])) 
 
     def draw(self):
-        draw.image('3s.png', mouse_pos, h=0.5, v=0.5)
+        '''
+        Draws everything.
+        '''
+        # map
+        draw.image(
+            self.map.image,
+            self.local_to_global((0,0)),
+            self.map.pixel_size
+        )
+
+        # player
+        draw.image(
+            '3s.png',
+            self.local_to_global(self.position),
+            h=0.5, v=0.5
+        )
 
     def update(self):
-        pass
+        '''
+        Updates the game.
+        '''
+        # smooth camera
+        self.cam_smooth[0] = lerp(self.cam_smooth[0], self.cam_center[0], 3*td)
+        self.cam_smooth[1] = lerp(self.cam_smooth[1], self.cam_center[1], 3*td)
+
+        self.cam_center = [self.position[0],self.position[1]]
+
+        # updating player
+        self.update_player()
 
 
 # app variables
 
-app = App()
+app = Dungeon(
+    PlayerData({
+        'speed':   5,
+        'health':  400,
+        'damage':  1.2,
+        'stamina': 7,
+        'upoints': 25000
+    }),
+    MapData({
+        'image':        'maps/map1.png',
+        'size':         [20,10],
+        'tile_size':    48,
+        'spawn':        [9,4],
+        'enemy_spawns': [[1,8], [18,1], [18,8], [1,1]]
+    })
+)
 debug_opened = False
 
 
@@ -119,6 +274,7 @@ while running:
 
     # events
     for event in events:
+        # quitting the game
         if event.type == pg.QUIT:
             running = False 
 
@@ -135,8 +291,10 @@ while running:
             update_size()
             window = pg.display.set_mode((screenx,screeny), pg.RESIZABLE)
 
+        # registering pressed keys
         if event.type == pg.KEYDOWN:
             keysdown.append(event.key)
+            # enabling/disabling debug mode
             if event.key == pg.K_F3:
                 debug_opened = not debug_opened
 
