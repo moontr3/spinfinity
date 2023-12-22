@@ -6,6 +6,7 @@ import easing_functions as easing
 import draw
 import time
 from typing import *
+import numpy as np
 
 pg.init()
 
@@ -38,6 +39,11 @@ draw.def_surface = screen
 
 halfx = windowx//2 # half of the X window size
 halfy = windowy//2 # half of the Y window size
+
+
+# constants
+
+TILE_SIZE = 32
 
 
 # app functions 
@@ -84,6 +90,29 @@ def update_size():
 
 # app classes
 
+class ProjectileData:
+    def __init__(self, data:dict):
+        self.image:str = data['image']
+        self.size:Union[int,int] = data['size']
+        self.speed:float = data['speed']
+
+
+class Projectile:
+    def __init__(self, projectile:ProjectileData, position:Union[int,int], angle:float):
+        self.projectile: ProjectileData = projectile
+        self.position: Union[int,int] = position
+        self.angle = angle
+
+        self.velocity: Union[float,float] = [
+            np.cos(angle)*self.projectile.speed,
+            np.sin(angle)*self.projectile.speed
+        ]
+
+    def update(self):
+        self.position[0] += self.velocity[0]*td
+        self.position[1] += self.velocity[1]*td
+
+
 class MapData:
     def __init__(self, data:dict):
         '''
@@ -91,14 +120,13 @@ class MapData:
         '''
         self.image:str = data['image']
         self.size: Union[int,int] = data['size']
-        self.tile_size: int = data['tile_size']
 
         self.player_spawn: Union[int,int] = data['spawn']
         self.enemy_spawn_locations: List[Union[int,int]] = data['enemy_spawns']
 
         self.pixel_size = [
-            self.size[0]*self.tile_size,
-            self.size[1]*self.tile_size
+            self.size[0]*TILE_SIZE,
+            self.size[1]*TILE_SIZE
         ]
         
 
@@ -136,12 +164,22 @@ class Dungeon:
         self.damage: int = player.damage
         self.stamina: float = player.stamina
         self.stamina_restore: float = 0.0
+
+        # projectiles
+        self.projectiles: List[Projectile] = []
+        self.player_proj = ProjectileData({
+            'image': '3s.png',
+            'size':  [16,16],
+            'speed': 10
+        })
         
         # stats
         self.score: int = 0
         self.points: int = 0
         self.level: int = 0
+        self.kills: int = 0
         self.kills_to_next_level: int = 5
+
 
     def local_to_global(self, pos):
         '''
@@ -150,8 +188,8 @@ class Dungeon:
         Even I don't know what's all this math already.
         '''
         return [
-            halfx-(self.cam_smooth[0]-pos[0])*self.map.tile_size,
-            halfy-(self.cam_smooth[1]-pos[1])*self.map.tile_size
+            halfx-(self.cam_smooth[0]-pos[0])*TILE_SIZE,
+            halfy-(self.cam_smooth[1]-pos[1])*TILE_SIZE
         ]
     
     def update_player(self):
@@ -166,8 +204,8 @@ class Dungeon:
         # on how to make the player walk diagonally with the same
         # speed as straight
         if len(moving) == 2:
-            speed *= 0.78 # completely made up number
-                          # definitely not rounded up pi/5
+            speed *= 0.77 # completely made up number
+                          # no like fr i don't know what does this number mean
 
         # decreasing stamina when sprinting
         if keys[pg.K_LSHIFT] and moving and self.stamina > 0:
@@ -206,6 +244,15 @@ class Dungeon:
             self.map.pixel_size
         )
 
+        # projectiles
+        for i in self.projectiles:
+            draw.image(
+                i.projectile.image,
+                self.local_to_global(i.position),
+                i.projectile.size,
+                h=0.5, v=0.5
+            )
+
         # player
         draw.image(
             '3s.png',
@@ -217,6 +264,13 @@ class Dungeon:
         '''
         Updates the game.
         '''
+        # updating cursor
+        player_pos = self.local_to_global(self.position)
+        self.mouse_angle = np.arctan2(
+            mouse_pos[1]-player_pos[1],
+            mouse_pos[0]-player_pos[0]
+        )
+
         # smooth camera
         self.cam_smooth[0] = lerp(self.cam_smooth[0], self.cam_center[0], 3*td)
         self.cam_smooth[1] = lerp(self.cam_smooth[1], self.cam_center[1], 3*td)
@@ -226,12 +280,24 @@ class Dungeon:
         # updating player
         self.update_player()
 
+        # shooting
+        if keys[pg.K_SPACE]:
+            self.projectiles.append(Projectile(
+                self.player_proj,
+                [self.position[0], self.position[1]],
+                self.mouse_angle
+            ))
+
+        # projectiles
+        for i in self.projectiles:
+            i.update()
+
 
 # app variables
 
 app = Dungeon(
     PlayerData({
-        'speed':   5,
+        'speed':   7,
         'health':  400,
         'damage':  1.2,
         'stamina': 7,
@@ -240,8 +306,7 @@ app = Dungeon(
     MapData({
         'image':        'maps/map1.png',
         'size':         [20,10],
-        'tile_size':    48,
-        'spawn':        [9,4],
+        'spawn':        [10,5],
         'enemy_spawns': [[1,8], [18,1], [18,8], [1,1]]
     })
 )
