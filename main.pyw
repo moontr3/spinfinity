@@ -33,6 +33,7 @@ screen = pg.Surface((windowx, windowy)) # the surface that everything gets
                                         # to fit in the window correctly and then gets
                                         # drawn to the window surface
 
+pg.mouse.set_visible(False)
 running = True
 pg.display.set_caption('game')
 draw.def_surface = screen
@@ -162,6 +163,7 @@ class WeaponData:
         '''
         self.name: str = data['name']
         self.image: str = data['image']
+        self.size: Tuple[int,int] = data['size']
         self.speed: float = data['speed']
         self.projectile: ProjectileData = ProjectileData(data['projectile'])
         self.range: int = data['range']
@@ -226,6 +228,11 @@ class BulletDeath:
         if self.key >= 1.0:
             self.deletable = True
 
+
+class AnimationFrames:
+    def __init__(self, ):
+        self
+
     
 class Dungeon:
     def __init__(self, weapon:WeaponData, player:PlayerData, map:MapData):
@@ -279,15 +286,27 @@ class Dungeon:
             halfy-(self.cam_smoothed_center[1]-pos[1])*TILE_SIZE+self.shake_pos[1]
         ]
     
+    def draw_ui(self):
+        '''
+        Draws the HUD.
+        '''
+        # mouse crosshair
+        draw.image(
+            'crosshair.png',
+            mouse_pos,
+            (11,11),
+            h=0.5,v=0.5,
+        )
+    
     def draw_player(self):
         '''
         Draws the player.
         '''
-        # mouse cursor
+        # cursor pointer
         draw.image(
             'cursor_bar.png',
             self.global_player_pos,
-            (1,100),
+            (1,150*(1-self.shooting_timer/self.weapon.speed)),
             h=0.5,v=0.5,
             rotation=self.mouse_degrees_angle
         )
@@ -296,6 +315,7 @@ class Dungeon:
         draw.image(
             '3s.png',
             self.global_player_pos,
+            (TILE_SIZE,TILE_SIZE),
             h=0.5, v=0.5,
             fliph=self.mouse_degrees_angle<180
         )
@@ -304,8 +324,10 @@ class Dungeon:
         draw.image(
             self.weapon.image,
             self.global_player_pos,
+            self.weapon.size,
             h=0.5, v=0.5,
-            fliph=self.mouse_degrees_angle<180
+            rotation=self.mouse_degrees_angle,
+            flipv=self.mouse_degrees_angle<180
         )
 
 
@@ -371,6 +393,9 @@ class Dungeon:
 
         # player
         self.draw_player()
+        
+        # ui
+        self.draw_ui()
 
     def update(self):
         '''
@@ -388,6 +413,8 @@ class Dungeon:
         if self.shakiness > 0.0:
             self.shake_pos = [(random.random()*2-1)*self.shakiness for i in range(2)]
             self.shakiness = lerp(self.shakiness, 0, 8*td)
+            if round(self.shakiness,1) == 0.0:
+                self.shakiness = 0.0
             if self.shakiness < 0.0:
                 self.shakiness = 0.0
 
@@ -450,6 +477,7 @@ app = Dungeon(
     WeaponData({
         'name':       'Shotgun',
         'image':      '3s.png',
+        'size':       [16,16],
         'speed':      0.5,
         'range':      15,
         'amount':     6,
@@ -457,9 +485,9 @@ app = Dungeon(
         'shake':      3,
         'projectile': {
             'image':    '3s.png',
-            'size':     [16,16],
+            'size':     [14,14],
             'speed':    [15,20],
-            'slowdown': 4,
+            'slowdown': 6,
             'lifetime': [0.5, 0.6]
         }
     }),
