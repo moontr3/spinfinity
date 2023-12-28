@@ -337,17 +337,33 @@ class Enemy:
         Draws the enemy at the desired
         position.
         '''
+        # image
         draw.image(
             self.enemy.image,
             position,
             self.enemy.size,
             h=0.5, v=0.5
         )
+        # hp bar
         draw.text(
             f'{self.health} HP',
             (position[0],position[1]-self.enemy.size[1]/2),
             h=0.5, v=2
         )
+        # glow
+        if self.glow_key > 0.0:
+            for i in range(int(self.glow_key*2)+1):
+                draw.image(
+                    self.enemy.image,
+                    position,
+                    self.enemy.size,
+                    h=0.5, v=0.5,
+                    blending=pg.BLEND_RGBA_ADD 
+                ) # blending doesn't support opacity so my solution
+                  # is drawing the same image over and over again
+                  # with the same opacity and gradually decreasing
+                  # the amount of images being drawn to create an 
+                  # illusion of smooth fading
 
     def update(self):
         '''
@@ -355,6 +371,11 @@ class Enemy:
         '''
         self.position[0] += np.cos(self.direction_angle)*self.enemy.speed*td
         self.position[1] += np.sin(self.direction_angle)*self.enemy.speed*td
+
+        if self.glow_key > 0:
+            self.glow_key -= td*10
+            if self.glow_key < 0:
+                self.glow_key = 0
 
         self.update_rect()
 
@@ -683,11 +704,11 @@ app = Dungeon(
         'name':       'Shotgun',
         'image':      '3s.png',
         'size':       [16,16],
-        'speed':      0.7,
+        'speed':      0.05,
         'range':      15,
         'amount':     8,
-        'recoil':     0.25,
-        'shake':      3,
+        'recoil':     0.05,
+        'shake':      1,
         'projectile': {
             'image':    '3s.png',
             'size':     [14,14],

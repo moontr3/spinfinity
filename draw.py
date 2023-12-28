@@ -1,6 +1,7 @@
 # LIGRARIES
 import pygame as pg
 from typing import *
+from copy import deepcopy
 
 
 # CLASSES
@@ -84,7 +85,7 @@ class ImageType:
             return self.resized_images[str_param]
         else:
             self.init_image(size, smooth, fliph, flipv, str_param)
-            return self.find(size, smooth)
+            return self.find(size, smooth, fliph, flipv)
 
 class ImageGroup:
     def __init__(self, image_folder:str):
@@ -130,20 +131,22 @@ def_surface = None # default surface for drawing
 
 # TEXT DRAWING
 def text(
-        text='',
-        pos=(0,0),
-        color=(255,255,255), 
-        size=6,
-        style='regular', 
-        h=0.0, 
-        v=0.0, 
-        antialias=True, 
-        rotation=0,
-        opacity=255,
-        surface=None
-    ):
+        text:str = '',
+        pos:Tuple[int,int] = (0,0),
+        color:Tuple[int,int,int] = (255,255,255), 
+        size:int = 6,
+        style:str = 'regular', 
+        h:float = 0.0, 
+        v:float = 0.0, 
+        antialias:bool = True, 
+        rotation:int = 0,
+        opacity:int = 255,
+        surface:pg.Surface = None
+    ) -> Tuple[int,int]:
     '''
     Draws text on the specified surface.
+    
+    Returns font rect size.
     '''
 
     # surface
@@ -185,16 +188,17 @@ def text(
 # IMAGE DRAWING
 def image(
         image:str,
-        pos=(0,0),
-        size=(48,48), 
-        h=0.0, 
-        v=0.0, 
-        rotation=0,
-        opacity=255,
-        fliph=False,
-        flipv=False,
-        surface=None,
-        smooth=True
+        pos:Tuple[int,int] = (0,0),
+        size:Tuple[int,int] = (48,48), 
+        h:float = 0.0, 
+        v:float = 0.0, 
+        rotation:int = 0,
+        opacity:int = 255,
+        fliph:bool = False,
+        flipv:bool = False,
+        surface:pg.Surface = None,
+        smooth:bool = True,
+        blending:int = 0
     ):
     '''
     Draws an image on the specified surface.
@@ -205,7 +209,7 @@ def image(
         surface = def_surface
 
     # getting image
-    image = images.find(image, size, smooth, fliph, flipv)
+    image = deepcopy(images.find(image, size, smooth, fliph, flipv))
 
     # rotation
     if rotation != 0:
@@ -227,7 +231,7 @@ def image(
         rect.y -= rect.size[1]*v
     
     # drawing
-    surface.blit(image, rect)
+    surface.blit(image, rect, special_flags=blending)
 
 
 # TEXT SIZE
