@@ -266,6 +266,31 @@ class Enemy:
     def __init__(self, enemy:EnemyData, position:Tuple[int,int]):
         self.enemy: EnemyData = enemy
         self.position: Tuple[int,int] = position
+        self.size: Tuple[int,int] = (
+            self.enemy.size[0]/TILE_SIZE,
+            self.enemy.size[1]/TILE_SIZE
+        ) # size of enemy rect in units
+        self.update_rect()
+
+        self.direction_angle: float = 0.0 # direction the enemy is facing in radians
+
+    def update_ai(self, player_pos:Tuple[float,float], enemy_pos:List[Tuple[float,float]]):
+        '''
+        Updates the direction angle of self
+        in place according to the provided data.
+        '''
+
+    def update_rect(self):
+        '''
+        Updates the enemy rect in place.
+        '''
+        self.rect = pg.Rect((0,0), self.size)
+        self.rect.center = self.position
+
+    def update(self, player_pos:Tuple[int, int]):
+        '''
+        Updates the enemy.
+        '''
 
     
 class Dungeon:
