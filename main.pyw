@@ -49,13 +49,13 @@ TILE_SIZE = 32
 
 # app functions 
 
-def rad2deg(angle:float):
+def rad2deg(angle:float) -> float:
     '''
     Converts radian to degrees.
     '''
     return (-np.rad2deg(angle)-90)%360
 
-def lerp(a:float, b:float, t:float):
+def lerp(a:float, b:float, t:float) -> float:
     '''
     Interpolates between A and B.
     '''
@@ -80,6 +80,7 @@ def update_size():
     '''
     global sizex, sizey, screenx, screeny, windowrect, windowrect_top
 
+    # calculating the size of the screen
     if screenx/ratiox > screeny/ratioy:
         sizex = screeny/ratioy*ratiox
         sizey = screeny
@@ -90,6 +91,7 @@ def update_size():
         sizex = screenx
         sizey = screeny
 
+    # updating rect of the screen
     windowrect = pg.Rect(0,0,sizex, sizey)
     windowrect.center = (screenx/2, screeny/2)
     windowrect_top = windowrect.topleft
@@ -102,16 +104,28 @@ class ProjectileData:
         '''
         Initial projectile data.
         '''
-        self.image:str = data['image']
-        self.size:Tuple[int,int] = data['size']
-        self.speed:Tuple[int,int] = data['speed']
-        self.slowdown: float = data['slowdown']
-        self.lifetime: float = data['lifetime']
+        self.image:str = data['image'] # projectile image
+        self.size:Tuple[int,int] = data['size'] # projectile size in pixels
+        self.speed:Tuple[int,int] = data['speed'] # projectile speed px/s
+                                                  # first value is the minimum and
+                                                  # the second is the maximum
+        self.slowdown: float = data['slowdown'] # how much the projectile slows down per second
+        self.lifetime: Tuple[int,int] = data['lifetime'] # projectile lifetime in seconds
+                                                         # first value is the minimum and
+                                                         # the second is the maximum
 
-    def random_speed(self):
+    def random_speed(self) -> int:
+        '''
+        Returns randomly generated speed
+        between two provided values.
+        '''
         return random.randint(self.speed[0], self.speed[1])
 
-    def random_lifetime(self):
+    def random_lifetime(self) -> float:
+        '''
+        Returns randomly generated lifetime
+        between two provided values.
+        '''
         return random.random()*(self.lifetime[1]-self.lifetime[0])+self.lifetime[0]
 
 
@@ -122,12 +136,12 @@ class Projectile:
         '''
         self.projectile: ProjectileData = projectile
         self.position: Tuple[int,int] = position
-        self.angle = angle
-        self.degrees_angle = rad2deg(angle)
-        self.speed = projectile.random_speed()
-        self.lifetime: float = projectile.random_lifetime()
+        self.angle = angle # angle in radians
+        self.degrees_angle = rad2deg(angle) # angle in degrees
+        self.speed = projectile.random_speed() # current speed px/s
+        self.lifetime: float = projectile.random_lifetime() # lifetime left in seconds
 
-        self.velocity: Tuple[float,float] = [
+        self.velocity: Tuple[float,float] = [ # X and Y velocities of the projectile
             np.cos(angle),
             np.sin(angle)
         ]
@@ -161,18 +175,21 @@ class WeaponData:
         '''
         Initial weapon data.
         '''
-        self.name: str = data['name']
-        self.image: str = data['image']
-        self.size: Tuple[int,int] = data['size']
-        self.speed: float = data['speed']
+        self.name: str = data['name'] # weapon name
+        self.image: str = data['image'] # weapon image
+        self.size: Tuple[int,int] = data['size'] # weapon image size in pixels
+        self.speed: float = data['speed'] # what time has to pass between two shots in seconds
+        self.range: int = data['range'] # maximum shooting range in degrees
+        self.amount: int = data['amount'] # amount of projectiles to spawn when shot
+        self.recoil: float = data['recoil'] # how much the player gets pushed back when shot in units
+        self.shake: float = data['shake'] # how much the screen should shake
         self.projectile: ProjectileData = ProjectileData(data['projectile'])
-        self.range: int = data['range']
-        self.speed: float = data['speed']
-        self.amount: int = data['amount']
-        self.recoil: float = data['recoil']
-        self.shake: float = data['shake']
 
-    def random_range(self):
+    def random_range(self) -> float:
+        '''
+        Returns randomly generated shooting
+        range between `-range` and `range` as radians.
+        '''
         return np.deg2rad(random.randint(-self.range, self.range))
 
 
@@ -181,13 +198,14 @@ class MapData:
         '''
         Used to represent map data.
         '''
-        self.image:str = data['image']
-        self.size: Tuple[int,int] = data['size']
+        self.image:str = data['image'] # map image
+        self.size: Tuple[int,int] = data['size'] # map size in units
 
-        self.player_spawn: Tuple[int,int] = data['spawn']
+        self.player_spawn: Tuple[int,int] = data['spawn'] # where the player should spawn in units
         self.enemy_spawn_locations: List[Tuple[int,int]] = data['enemy_spawns']
+            # list of enemy spawn locations in unit coordinates
 
-        self.pixel_size = [
+        self.pixel_size = [ # size of the map in pixels
             self.size[0]*TILE_SIZE,
             self.size[1]*TILE_SIZE
         ]
@@ -198,16 +216,31 @@ class PlayerData:
         '''
         Used to represent player data.
         '''
-        self.speed = data['speed']
-        self.health = data['health']
-        self.damage = data['damage']
-        self.stamina = data['stamina']
-        self.u_points = data['upoints'] # amount of points needed to reach ultimate
+        self.image: str = data['image'] # player sprite
+        self.speed: float = data['speed'] # player speed units/s
+        self.health: int = data['health'] # player base health
+        self.damage: int = data['damage'] # player base damage
+        self.crit: float = data['crit'] # player base crit damage multiplier
+        self.stamina: int = data['stamina'] # player base stamina
+        self.u_points: int = data['upoints'] # amount of points needed to reach ultimate
+
+
+class EnemyData:
+    def __init__(self, data:dict):
+        '''
+        Used to represent enemy data.
+        '''
+        self.image: str = data['image'] # enemy sprite
+        self.size: Tuple[int,int] = data['size'] # size of sprite in pixels
+        self.speed: float = data['speed'] # enemy speed units/s
+        self.health: int = data['health'] # enemy base health
+        self.damage: int = data['damage'] # enemy damage
+        self.crit: float = data['crit'] # enemy crit damage multiplier
 
 
 class BulletDeath:
-    def __init__(self, position):
-        self.position = position
+    def __init__(self, position=Tuple[int,int]):
+        self.position: Tuple[int,int] = position
         self.key = 0.0
 
         self.deletable = False
@@ -229,9 +262,10 @@ class BulletDeath:
             self.deletable = True
 
 
-class AnimationFrames:
-    def __init__(self, ):
-        self
+class Enemy:
+    def __init__(self, enemy:EnemyData, position:Tuple[int,int]):
+        self.enemy: EnemyData = enemy
+        self.position: Tuple[int,int] = position
 
     
 class Dungeon:
@@ -275,7 +309,7 @@ class Dungeon:
         self.kills_to_next_level: int = 5
 
 
-    def local_to_global(self, pos):
+    def local_to_global(self, pos) -> Tuple[float,float]:
         '''
         Converts map coordinates to coordinates on screen.
 
@@ -313,11 +347,12 @@ class Dungeon:
 
         # player
         draw.image(
-            '3s.png',
+            self.player.image,
             self.global_player_pos,
             (TILE_SIZE,TILE_SIZE),
             h=0.5, v=0.5,
-            fliph=self.mouse_degrees_angle<180
+            fliph=self.mouse_degrees_angle<180,
+            smooth=False
         )
 
         # weapon
@@ -475,26 +510,28 @@ class Dungeon:
 
 app = Dungeon(
     WeaponData({
-        'name':       'Shotgun',
+        'name':       'Pistol',
         'image':      '3s.png',
         'size':       [16,16],
-        'speed':      0.5,
-        'range':      15,
-        'amount':     6,
-        'recoil':     0.25,
-        'shake':      3,
+        'speed':      0.3,
+        'range':      3,
+        'amount':     1,
+        'recoil':     0,
+        'shake':      0,
         'projectile': {
             'image':    '3s.png',
-            'size':     [14,14],
-            'speed':    [15,20],
-            'slowdown': 6,
-            'lifetime': [0.5, 0.6]
+            'size':     [10,10],
+            'speed':    [25,30],
+            'slowdown': 0,
+            'lifetime': [0.9, 1]
         }
     }),
     PlayerData({
+        'image':   '3s.png',
         'speed':   7,
         'health':  400,
         'damage':  1.2,
+        'crit':    1.25,
         'stamina': 7,
         'upoints': 25000
     }),
@@ -528,7 +565,7 @@ while running:
     mouse_press = pg.mouse.get_pressed(3)
     mouse_moved = pg.mouse.get_rel()
     keys = pg.key.get_pressed() # keys that are being held
-    keysdown = [] # list of keys that are pressed in the current frame
+    keysdown = [] # list of keys that are just pressed in the current frame
 
     screen.fill((0,0,0))
 
@@ -567,9 +604,9 @@ while running:
         draw_debug()
 
     # updating
-    surface = pg.transform.scale(screen, (sizex, sizey))
-    window.blit(surface, windowrect)
+    surface = pg.transform.scale(screen, (sizex, sizey)) # scaling the surface
+    window.blit(surface, windowrect) # drawing the surface on screen
     pg.display.flip()
     clock.tick(fps)
-    dfps = round(clock.get_fps(), 2)
-    td = time.time()-start_td
+    dfps = round(clock.get_fps(), 2) # getting fps
+    td = time.time()-start_td # calculating timedelta for the next frame
