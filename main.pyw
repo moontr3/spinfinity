@@ -2,7 +2,6 @@
 
 import random
 import pygame as pg
-import easing_functions as easing
 import draw
 import time
 from typing import *
@@ -76,6 +75,18 @@ def lerp(a:float, b:float, t:float) -> float:
     '''
     t = max(0,min(1,t))
     return (1 - t) * a + t * b
+
+def shorten(number:int, capitalize=False):
+    abbr = ['', 'k','m','b','t','q']
+    if capitalize:
+        abbr = [i.upper() for i in abbr]
+
+    for x in abbr:
+        if number < 1000:
+            return f"{round(number, 2)}{x}"
+        number /= 1000
+
+    return str(number*1000)+abbr[-1]
 
 def draw_debug():
     '''
@@ -265,6 +276,11 @@ class EnemyData:
 
 class BulletDeath:
     def __init__(self, position=Tuple[int,int]):
+        '''
+        Used to represent a particle that is
+        displayed when the bullet hits a wall or
+        naturally despawns.
+        '''
         self.position: Tuple[int,int] = position
         self.key = 0.0
 
@@ -287,11 +303,96 @@ class BulletDeath:
             self.deletable = True
 
 
+class OngoingDI:
+    def __init__(self, position: Tuple[float, float]):
+        self.position: Tuple[float, float] = position
+        self.amount: int = 0
+        self.update_rect()
+        self.lifetime: float = 0.7
+        self.deletable: bool = False
+        self.glow: float = 1.0
+
+    def update_rect(self):
+        self.rect: pg.Rect = pg.Rect((0,0),(3,2))
+        self.rect.center = self.position
+
+    def add(self, amount):
+        self.amount += amount
+        self.lifetime = 0.7
+        self.glow = 1.0
+        self.string = shorten(self.amount)
+
+    def draw(self, position: Tuple[int,int]):
+        # text
+        draw.text(
+            self.string,
+            (position[0], position[1]-2),
+            size=16, color=(0,0,0),
+            style='round',
+            h=0.5, v=0.5,
+        )
+        # text
+        draw.text(
+            self.string,
+            position, size=16,
+            style='round',
+            h=0.5, v=0.5,
+        )
+        # glow
+        if int(self.glow*255) > 0:
+            draw.image(
+                'glow.png',
+                position, (50,25),
+                h=0.5, v=0.5,
+                opacity=int(self.glow*255)
+            )
+
+    def update(self):
+        self.lifetime -= td
+        self.glow = lerp(self.glow, 0, td*12)
+        if self.lifetime <= 0:
+            self.deletable = True
+
+
+class DamageIndicator:
+    def __init__(self, string:str, position:Tuple[float,float]):
+        self.string: str = string
+        self.lifetime: float = 1.0
+        self.initial_lifetime: float = 1.0
+        self.position: Tuple[float, float] = position
+        self.velocity: Tuple[float, float] = [
+            random.random()*1-0.5,
+            random.random()-5
+        ]
+
+        self.deletable = False
+
+    def draw(self, position:Tuple[int,int]):
+        draw.text(
+            self.string,
+            position, size=16,
+            style='round',
+            h=0.5,v=0.5,
+            opacity=self.lifetime/self.initial_lifetime*255
+        )
+
+    def update(self):
+        self.lifetime -= td
+        if self.lifetime <= 0:
+            self.deletable = True
+            return
+        
+        self.position[0] += self.velocity[0]*td*2
+        self.position[1] += self.velocity[1]*td
+
+        self.velocity[1] += td*9
+
+
 class Enemy:
     def __init__(self, enemy:EnemyData, position:Tuple[int,int]):
         self.enemy: EnemyData = enemy
         self.position: Tuple[int,int] = position
-        self.size: Tuple[int,int] = (
+        self.size: Tuple[float,float] = (
             self.enemy.size[0]/TILE_SIZE,
             self.enemy.size[1]/TILE_SIZE
         ) # size of enemy rect in units
@@ -300,6 +401,8 @@ class Enemy:
         self.health: int = enemy.health
         self.direction_angle: float = 0.0 # direction the enemy is facing in radians
         self.glow_key: float = 0.0
+        self.hp_num_vis: float = 3.0
+        self.health_bar_color: Tuple[int,int,int] = (80,230,50)
 
     def hit(self, damage:int):
         '''
@@ -308,6 +411,7 @@ class Enemy:
         '''
         self.health -= damage
         self.glow_key = 1.0
+        self.hp_num_vis = 2.0
 
     def update_path(self, player_pos:Tuple[float,float], enemies:List):
         '''
@@ -322,14 +426,14 @@ class Enemy:
                 # if i.rect.colliderect(self.rect):
                 distance = get_distance(self.position, i.position)
                 angle = points_to_angle(self.position, i.position)
-                self.position[0] -= np.cos(angle)*(1/distance)*0.001
-                self.position[1] -= np.sin(angle)*(1/distance)*0.001
+                self.position[0] -= np.cos(angle)*(1/distance)*0.0003*self.enemy.speed
+                self.position[1] -= np.sin(angle)*(1/distance)*0.0003*self.enemy.speed
 
     def update_rect(self):
         '''
         Updates the enemy rect in place.
         '''
-        self.rect = pg.Rect((0,0), self.size)
+        self.rect = pg.FRect((0,0), self.size)
         self.rect.center = self.position
 
     def draw(self, position: Tuple[int,int]):
@@ -345,11 +449,33 @@ class Enemy:
             h=0.5, v=0.5
         )
         # hp bar
-        draw.text(
-            f'{self.health} HP',
-            (position[0],position[1]-self.enemy.size[1]/2),
-            h=0.5, v=2
+        bar_rect = pg.Rect(
+            (position[0]-20,position[1]-self.enemy.size[1]/2-7),
+            (40,5)
         )
+        pg.draw.rect(screen, (30,30,30), bar_rect, 0, 2)
+        pg.draw.rect(screen, (50,50,50), bar_rect, 1, 2)
+        hp_rect = pg.Rect(
+            (position[0]-19,position[1]-self.enemy.size[1]/2-6),
+            (38*(self.health/self.enemy.health),3)
+        )
+        pg.draw.rect(screen, self.health_bar_color, hp_rect)
+
+        if self.hp_num_vis >= 0:
+            # shadow
+            draw.text(
+                str(self.health),
+                (bar_rect.center[0]+1, bar_rect.center[1]+1),
+                h=0.5, v=0.5, color=(0,0,0),
+                opacity=int(min(255,self.hp_num_vis*400))
+            )
+            # text
+            draw.text(
+                str(self.health),
+                (bar_rect.center[0], bar_rect.center[1]+1),
+                h=0.5, v=0.5,
+                opacity=int(min(255,self.hp_num_vis*400))
+            )
         # glow
         if self.glow_key > 0.0:
             for i in range(int(self.glow_key*2)+1):
@@ -373,9 +499,12 @@ class Enemy:
         self.position[1] += np.sin(self.direction_angle)*self.enemy.speed*td
 
         if self.glow_key > 0:
-            self.glow_key -= td*10
-            if self.glow_key < 0:
-                self.glow_key = 0
+            self.glow_key -= td*7
+        if (self.health/self.enemy.health) < 0.3:
+            self.hp_num_vis = 1
+            self.health_bar_color = (255,50,50)
+        elif self.hp_num_vis > 0:
+            self.hp_num_vis -= td
 
         self.update_rect()
 
@@ -410,11 +539,9 @@ class Dungeon:
         # enemies
         self.enemies: List[Enemy] = [Enemy(EnemyData({
             'image':      '3s.png',
-            'size':       [32,32],
-            'speed':      3.0,
-            'health':     250,
-            'damage':     9,
-            'crit':       1.25,
+            'size':       [24,24],
+            'speed':      2,
+            'health':     2500,
             'projectile': {
                 'image':    '3s.png',
                 'size':     [10,10],
@@ -424,10 +551,11 @@ class Dungeon:
                 'hit':      'player',
                 'damage':   400
             }
-        }), [random.randint(1,19), random.randint(1,9)]) for i in range(10)]
+        }), [random.randint(1,19), random.randint(1,9)]) for i in range(25)]
 
         # effects
         self.effects: list = []
+        self.damage_indicators: List[OngoingDI] = []
         self.shakiness: float = 0.0
         self.shake_pos: Tuple[float,float] = [0,0]
 
@@ -460,6 +588,19 @@ class Dungeon:
 
     def damage_player(self, amount:int):
         self.player_health -= amount
+
+
+    def damage_enemy(self, amount:int, position:Tuple[float, float]):
+        for i in self.damage_indicators:
+            if i.rect.collidepoint(position):
+                i.add(amount)
+                i.position[0] = lerp(i.position[0], position[0], 0.02)
+                i.position[1] = lerp(i.position[1], position[1], 0.02)
+                i.update_rect()
+                return
+        di = OngoingDI(position)
+        di.add(amount)
+        self.damage_indicators.append(di)
     
     
     def draw_ui(self):
@@ -569,12 +710,16 @@ class Dungeon:
         for i in self.projectiles:
             i.draw(self.local_to_global(i.position))
 
+        # enemies
+        for i in self.enemies:
+            i.draw(self.local_to_global(i.position))
+
         # effects
         for i in self.effects:
             i.draw(self.local_to_global(i.position))
 
-        # enemies
-        for i in self.enemies:
+        # damage indicators
+        for i in self.damage_indicators:
             i.draw(self.local_to_global(i.position))
 
         # player
@@ -664,6 +809,7 @@ class Dungeon:
                         destroy = True
                         fx = False
                         enemy.hit(i.damage)
+                        self.damage_enemy(i.damage, i.position)
                 
             # destroying the projectile if needed
             if not destroy:
@@ -688,6 +834,16 @@ class Dungeon:
             new.append(i)
         self.enemies = new
 
+        # damage indicators
+        new = []
+        for i in self.damage_indicators:
+            i.update()
+            if not i.deletable:
+                new.append(i)
+            else:
+                self.effects.append(DamageIndicator(i.string, i.position))
+        self.damage_indicators = new
+        
         # effects
         new = []
         for i in self.effects:
@@ -695,6 +851,7 @@ class Dungeon:
             if not i.deletable:
                 new.append(i)
         self.effects = new
+
 
 
 # app variables
@@ -707,7 +864,7 @@ app = Dungeon(
         'speed':      0.05,
         'range':      15,
         'amount':     8,
-        'recoil':     0.05,
+        'recoil':     0.0,
         'shake':      1,
         'projectile': {
             'image':    '3s.png',
@@ -716,7 +873,7 @@ app = Dungeon(
             'slowdown': 5,
             'lifetime': [0.4, 0.6],
             'hit':      'enemy',
-            'damage':   [3,5]
+            'damage':   [7,12]
         }
     }),
     PlayerData({
