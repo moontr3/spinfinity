@@ -20,11 +20,12 @@ ratiox = 16
 ratioy = 9
 
 clock = pg.time.Clock()
-dfps = 0.0 # current fps
-fps = 0    # target fps (0 - no limit)
-td = 0.0   # timedelta
-           # how much time passed between two frames
-           # used to run the game independent of framerate
+dfps = 0.0      # current fps
+prev_dfps = 0.0 # previous fps
+fps = 0         # target fps (0 - no limit)
+td = 0.0        # timedelta
+                # how much time passed between two frames
+                # used to run the game independent of framerate
 
 window = pg.display.set_mode((screenx,screeny), pg.RESIZABLE) # the window surface
 screen = pg.Surface((windowx, windowy)) # the surface that everything gets
@@ -92,8 +93,17 @@ def draw_debug():
     '''
     Draws debug data on top of the screen.
     '''    
-    draw.text(f'FPS: {dfps}', (0,0), (0,0,0))
-    draw.text(f'FPS: {dfps}', (0,1))
+    # fps graph
+    if dfps != prev_dfps:
+        fps_graph.append(dfps)
+    if len(fps_graph) > windowx:
+        fps_graph.pop(0)
+    if len(fps_graph) >= 2:
+        pg.draw.lines(screen, (255,255,255), False, [(i,windowy-val/2) for i, val in enumerate(fps_graph)])
+
+    # text
+    draw.text(f'FPS: {dfps}{f" / {fps}" if fps != 0 else ""}', (0,0), (0,0,0))
+    draw.text(f'FPS: {dfps}{f" / {fps}" if fps != 0 else ""}', (0,1))
     
     draw.text(f'Timedelta: {round(td,6)}', (0,8), (0,0,0))
     draw.text(f'Timedelta: {round(td,6)}', (0,9))
@@ -272,6 +282,14 @@ class EnemyData:
         self.speed: float = data['speed'] # enemy speed units/s
         self.health: int = data['health'] # enemy base health
         self.damage: ProjectileData = ProjectileData(data['projectile']) # enemy projectile
+        self.cost: Tuple[int,int] = data['cost'] # how much killing the enemy gives
+
+    def random_cost(self) -> int:
+        '''
+        Returns randomly generated cost
+        between two values.
+        '''
+        return random.randint(self.cost[0], self.cost[1])
 
 
 class BulletDeath:
@@ -327,22 +345,22 @@ class OngoingDI:
         draw.text(
             self.string,
             (position[0], position[1]-2),
-            size=16, color=(0,0,0),
-            style='round',
+            size=11, color=(0,0,0),
+            style='big',
             h=0.5, v=0.5,
         )
         # text
         draw.text(
             self.string,
-            position, size=16,
-            style='round',
+            position, size=11,
+            style='big',
             h=0.5, v=0.5,
         )
         # glow
         if int(self.glow*255) > 0:
             draw.image(
                 'glow.png',
-                position, (50,25),
+                position, (40,20),
                 h=0.5, v=0.5,
                 opacity=int(self.glow*255)
             )
@@ -370,8 +388,8 @@ class DamageIndicator:
     def draw(self, position:Tuple[int,int]):
         draw.text(
             self.string,
-            position, size=16,
-            style='round',
+            position, size=11,
+            style='big',
             h=0.5,v=0.5,
             opacity=self.lifetime/self.initial_lifetime*255
         )
@@ -386,6 +404,84 @@ class DamageIndicator:
         self.position[1] += self.velocity[1]*td
 
         self.velocity[1] += td*9
+
+
+class KillIndicator:
+    def __init__(self, amount:int, position:Tuple[float,float]):
+        self.amount: int = amount
+        self.smooth: int = 0
+        self.smooth_key: float = 0.0
+        self.update_counter()
+
+        self.lifetime: float = 2.0
+        self.initial_lifetime: float = 2.0
+        self.position: Tuple[float, float] = position
+        self.velocity: float = 2
+
+        self.glow1_key = 1.0
+        self.glow2_key = 1.0
+
+        self.deletable = False
+
+    def update_counter(self):
+        if self.smooth_key < 1:
+            self.smooth_key += td*3
+            if self.smooth_key > 1:
+                self.smooth_key = 1
+
+            self.smooth = int(self.amount*self.smooth_key)
+            self.string = '+'+shorten(self.smooth, capitalize=True)+'$'
+
+    def draw(self, position:Tuple[int,int]):
+        # shadow
+        draw.text(
+            self.string,
+            [position[0], position[1]-2], size=16,
+            style='round', color=(0,0,0),
+            h=0.5,v=0.5,
+            opacity=min(1, self.lifetime/self.initial_lifetime*2.5)*255
+        )
+        # text
+        draw.text(
+            self.string,
+            position, size=16,
+            style='round', color=(180,255,150),
+            h=0.5,v=0.5,
+            opacity=min(1, self.lifetime/self.initial_lifetime*2.5)*255
+        )
+        # glow 1
+        draw.image(
+            'glow.png',
+            position,
+            (70,60),
+            h=0.5,v=0.5,
+            opacity=int(self.glow1_key*255)
+        )
+        # glow 2
+        draw.image(
+            'glow.png',
+            position,
+            (120,5),
+            h=0.5,v=0.5,
+            opacity=int(self.glow2_key*255)
+        )
+
+    def update(self):
+        self.lifetime -= td
+        if self.lifetime <= 0:
+            self.deletable = True
+            return
+        
+        self.update_counter()
+        
+        self.position[1] -= td*(self.velocity+1)
+        if self.velocity > 0:
+            self.velocity -= td*5
+            if self.velocity < 0:
+                self.velocity = 0
+
+        self.glow1_key = lerp(self.glow1_key, 0, td*7)
+        self.glow2_key = lerp(self.glow2_key, 0, td*4)
 
 
 class Enemy:
@@ -423,11 +519,11 @@ class Enemy:
         # from each other so they don't form a big blob
         if len(enemies) != 0:
             for i in enemies:
-                # if i.rect.colliderect(self.rect):
-                distance = get_distance(self.position, i.position)
-                angle = points_to_angle(self.position, i.position)
-                self.position[0] -= np.cos(angle)*(1/distance)*0.0003*self.enemy.speed
-                self.position[1] -= np.sin(angle)*(1/distance)*0.0003*self.enemy.speed
+                if (i.position != self.position) and i.dst_rect.colliderect(self.dst_rect):
+                    distance = get_distance(self.position, i.position)
+                    angle = points_to_angle(self.position, i.position)
+                    self.position[0] -= np.cos(angle)*(1/distance)*0.0003*self.enemy.speed
+                    self.position[1] -= np.sin(angle)*(1/distance)*0.0003*self.enemy.speed
 
     def update_rect(self):
         '''
@@ -435,6 +531,10 @@ class Enemy:
         '''
         self.rect = pg.FRect((0,0), self.size)
         self.rect.center = self.position
+        # dst_rect is used to calculate the proximity
+        # when to "pull away" enemies from each other
+        self.dst_rect = pg.FRect((0,0), (self.size[0]*3,self.size[1]*3))
+        self.dst_rect.center = self.position
 
     def draw(self, position: Tuple[int,int]):
         '''
@@ -490,6 +590,16 @@ class Enemy:
                   # with the same opacity and gradually decreasing
                   # the amount of images being drawn to create an 
                   # illusion of smooth fading
+                
+        # some debug things
+        if debug_opened:
+            rect = pg.Rect((0,0), self.enemy.size)
+            rect.center = position
+            dst_rect = pg.Rect((0,0), (self.enemy.size[0]*3, self.enemy.size[1]*3))
+            dst_rect.center = position
+             
+            pg.draw.rect(screen, (255,0,0), dst_rect, 1)
+            pg.draw.rect(screen, (0,255,0), rect, 1)
 
     def update(self):
         '''
@@ -541,7 +651,8 @@ class Dungeon:
             'image':      '3s.png',
             'size':       [24,24],
             'speed':      2,
-            'health':     2500,
+            'health':     1000,
+            'cost':       [50,100],
             'projectile': {
                 'image':    '3s.png',
                 'size':     [10,10],
@@ -560,7 +671,7 @@ class Dungeon:
         self.shake_pos: Tuple[float,float] = [0,0]
 
         # stats
-        self.score: int = 0
+        self.balance: int = 0
         self.points: int = 0
         self.level: int = 0
         self.kills: int = 0
@@ -574,16 +685,18 @@ class Dungeon:
         return [i for i in self.projectiles if i.projectile.hit_type == 'player']
 
 
-    def local_to_global(self, pos) -> Tuple[float,float]:
+    def local_to_global(self, pos: Tuple[float,float]) -> Tuple[float,float]:
         '''
         Converts map coordinates to coordinates on screen.
-
-        Even I don't know what's all this math already.
         '''
         return [
             halfx-(self.cam_smoothed_center[0]-pos[0])*TILE_SIZE+self.shake_pos[0],
             halfy-(self.cam_smoothed_center[1]-pos[1])*TILE_SIZE+self.shake_pos[1]
         ]
+    
+
+    def add_balance(self, amount:int):
+        self.balance += amount
     
 
     def damage_player(self, amount:int):
@@ -826,6 +939,10 @@ class Dungeon:
             # damage (damaging is actually done above,
             # we just remove unneeded enemy objects here)
             if i.health <= 0:
+                cost = i.enemy.random_cost()
+                self.effects.append(KillIndicator(cost, i.position))
+                self.add_balance(cost)
+                self.shakiness += 1
                 continue
 
             # updating
@@ -862,18 +979,18 @@ app = Dungeon(
         'image':      '3s.png',
         'size':       [16,16],
         'speed':      0.05,
-        'range':      15,
-        'amount':     8,
+        'range':      20,
+        'amount':     6,
         'recoil':     0.0,
-        'shake':      1,
+        'shake':      0.5,
         'projectile': {
             'image':    '3s.png',
             'size':     [14,14],
-            'speed':    [10,15],
+            'speed':    [20,25],
             'slowdown': 5,
             'lifetime': [0.4, 0.6],
             'hit':      'enemy',
-            'damage':   [7,12]
+            'damage':   [10,20]
         }
     }),
     PlayerData({
@@ -892,6 +1009,7 @@ app = Dungeon(
     })
 )
 debug_opened = False
+fps_graph = []
 
 
 # preparation 
@@ -943,6 +1061,7 @@ while running:
             # enabling/disabling debug mode
             if event.key == pg.K_F3:
                 debug_opened = not debug_opened
+                fps_graph = []
 
     # drawing app
     app.update()
@@ -957,5 +1076,6 @@ while running:
     window.blit(surface, windowrect) # drawing the surface on screen
     pg.display.flip()
     clock.tick(fps)
+    prev_dfps = float(dfps)
     dfps = round(clock.get_fps(), 2) # getting fps
     td = time.time()-start_td # calculating timedelta for the next frame
