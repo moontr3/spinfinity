@@ -344,17 +344,10 @@ class OngoingDI:
         # text
         draw.text(
             self.string,
-            (position[0], position[1]-2),
-            size=11, color=(0,0,0),
-            style='big',
-            h=0.5, v=0.5,
-        )
-        # text
-        draw.text(
-            self.string,
             position, size=11,
             style='big',
             h=0.5, v=0.5,
+            shadows=[(0,-1)]
         )
         # glow
         if int(self.glow*255) > 0:
@@ -433,21 +426,14 @@ class KillIndicator:
             self.string = '+'+shorten(self.smooth, capitalize=True)+'$'
 
     def draw(self, position:Tuple[int,int]):
-        # shadow
-        draw.text(
-            self.string,
-            [position[0], position[1]-2], size=16,
-            style='round', color=(0,0,0),
-            h=0.5,v=0.5,
-            opacity=min(1, self.lifetime/self.initial_lifetime*2.5)*255
-        )
         # text
         draw.text(
             self.string,
             position, size=16,
             style='round', color=(180,255,150),
             h=0.5,v=0.5,
-            opacity=min(1, self.lifetime/self.initial_lifetime*2.5)*255
+            opacity=min(1, self.lifetime/self.initial_lifetime*2.5)*255,
+            shadows=[(0,-2)], shadow_color=(20,50,10)
         )
         # glow 1
         draw.image(
@@ -554,27 +540,21 @@ class Enemy:
             (40,5)
         )
         pg.draw.rect(screen, (30,30,30), bar_rect, 0, 2)
-        pg.draw.rect(screen, (50,50,50), bar_rect, 1, 2)
         hp_rect = pg.Rect(
             (position[0]-19,position[1]-self.enemy.size[1]/2-6),
+
             (38*(self.health/self.enemy.health),3)
         )
-        pg.draw.rect(screen, self.health_bar_color, hp_rect)
+        pg.draw.rect(screen, self.health_bar_color, hp_rect, 0, 2)
 
         if self.hp_num_vis >= 0:
-            # shadow
-            draw.text(
-                str(self.health),
-                (bar_rect.center[0]+1, bar_rect.center[1]+1),
-                h=0.5, v=0.5, color=(0,0,0),
-                opacity=int(min(255,self.hp_num_vis*400))
-            )
             # text
             draw.text(
                 str(self.health),
                 (bar_rect.center[0], bar_rect.center[1]+1),
                 h=0.5, v=0.5,
-                opacity=int(min(255,self.hp_num_vis*400))
+                opacity=int(min(255,self.hp_num_vis*400)),
+                shadows=[(1,0)]
             )
         # glow
         if self.glow_key > 0.0:
@@ -618,7 +598,109 @@ class Enemy:
 
         self.update_rect()
 
-    
+
+class BarDamage:
+    def __init__(self, percentage:float):
+        self.percentage: float = percentage
+        self.lifetime: float = 1.0
+        self.deletable: bool = False
+
+    def draw(self):
+        # bar
+        bar_rect = pg.Rect(6,6,98*self.percentage,4)
+        pg.draw.rect(
+            screen,
+            ((220*self.lifetime)+30,30,30),
+            bar_rect,
+            0, 2
+        )
+
+    def update(self):
+        self.lifetime -= td/1.5
+        if self.lifetime <= 0:
+            self.deletable = True
+
+
+class HPDisplay:
+    def __init__(self, limit:int):
+        self.limit: int = limit
+        self.hp: int = limit
+        self.smooth: int = limit
+        self.damage_indicators: List[BarDamage] = []
+        self.tint_opacity: float = 0
+
+    def update_hp(self, change:int):
+        # change hp
+        hp = int(self.hp) # hp before change
+        self.hp += change
+
+        if self.hp < 0:
+            change -= self.hp
+            self.hp = 0
+        if self.hp > self.limit:
+            change -= self.hp-self.limit
+            self.hp = self.limit
+
+        # animations
+        if change < 0:
+            self.damage_indicators.append(BarDamage(hp/self.limit))
+
+    def draw(self):
+        # bg
+        rect = pg.Rect(5,5,100,7)
+        pg.draw.rect(
+            screen,
+            (30,30,30),
+            rect,
+            0, 2
+        )
+        # damage indicators
+        for i in self.damage_indicators:
+            i.draw()
+        # bar
+        bar_rect = pg.Rect(6,6,98*(self.smooth/self.limit),5)
+        pg.draw.rect(
+            screen,
+            (255,255,255),
+            bar_rect,
+            0, 2
+        )
+        # text
+        color = (
+            255,
+            30+(1-self.tint_opacity)*225,
+            30+(1-self.tint_opacity)*225
+        )
+        draw.text(
+            str(self.hp),
+            (rect.centerx, rect.centery+1),
+            color,
+            h=0.5, v=0.5,
+            shadows=[(1,0),(-1,0),(0,1),(0,-1)]
+        )
+
+    def update(self): 
+        # smooth hp bar
+        if round(self.smooth, 1) != self.hp:
+            self.smooth = lerp(self.smooth, self.hp, td*5)
+        elif self.smooth != self.hp:
+            self.smooth = self.hp
+
+        # bar damage indicators
+        new = []
+        for i in self.damage_indicators:
+            i.update()
+            if not i.deletable:
+                new.append(i)
+        self.damage_indicators = new
+
+        # tinting hp text
+        if self.tint_opacity > 0:
+            self.tint_opacity -= td*2
+            if self.tint_opacity < 0:
+                self.tint_opacity = 0.0
+            
+
 class Dungeon:
     def __init__(self, weapon:WeaponData, player:PlayerData, map:MapData):
         '''
@@ -670,6 +752,9 @@ class Dungeon:
         self.shakiness: float = 0.0
         self.shake_pos: Tuple[float,float] = [0,0]
 
+        # ui
+        self.health_bar: HPDisplay = HPDisplay(player.health)
+
         # stats
         self.balance: int = 0
         self.points: int = 0
@@ -701,6 +786,7 @@ class Dungeon:
 
     def damage_player(self, amount:int):
         self.player_health -= amount
+        self.health_bar.update_hp(-amount)
 
 
     def damage_enemy(self, amount:int, position:Tuple[float, float]):
@@ -720,6 +806,9 @@ class Dungeon:
         '''
         Draws the HUD.
         '''
+        # health bar
+        self.health_bar.draw()
+
         # mouse crosshair
         draw.image(
             'crosshair.png',
@@ -968,6 +1057,9 @@ class Dungeon:
             if not i.deletable:
                 new.append(i)
         self.effects = new
+
+        # health bar
+        self.health_bar.update()
 
 
 

@@ -131,31 +131,44 @@ def_surface = None # default surface for drawing
 
 # TEXT DRAWING
 def text(
-        text:str = '',
+        target_text:str = '',
         pos:Tuple[int,int] = (0,0),
         color:Tuple[int,int,int] = (255,255,255), 
         size:int = 6,
         style:str = 'regular', 
         h:float = 0.0, 
         v:float = 0.0, 
-        antialias:bool = True, 
+        antialias:bool = False, 
         rotation:int = 0,
         opacity:int = 255,
+        shadows:List[Tuple[int,int]] = [],
+        shadow_color:Tuple[int,int,int] = (0,0,0),
         surface:pg.Surface = None
     ) -> Tuple[int,int]:
     '''
     Draws text on the specified surface.
-    
-    Returns font rect size.
     '''
+
+    target_text = str(target_text)
 
     # surface
     if surface == None:
         surface = def_surface
 
+    # drawing shadows
+    for i in shadows:
+        text(
+            target_text,
+            [pos[0]+i[0], pos[1]+i[1]],
+            shadow_color, size,
+            style, h, v, antialias,
+            rotation, opacity,
+            surface=surface
+        )
+
     # getting font
     font = fonts.find(size, style)
-    rtext = font.render(text, antialias, color)
+    rtext = font.render(target_text, antialias, color)
 
     # rotation
     if rotation != 0:
@@ -182,7 +195,6 @@ def text(
     
     # drawing
     surface.blit(rtext, btext)
-    return font.size(text)
 
 
 # IMAGE DRAWING
