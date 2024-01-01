@@ -1,5 +1,3 @@
-############## INITIALIZATION ##############
-
 import random
 import pygame as pg
 import draw
@@ -281,7 +279,10 @@ class EnemyData:
         self.size: Tuple[int,int] = data['size'] # size of sprite in pixels
         self.speed: float = data['speed'] # enemy speed units/s
         self.health: int = data['health'] # enemy base health
-        self.damage: ProjectileData = ProjectileData(data['projectile']) # enemy projectile
+        self.projectile: ProjectileData = ProjectileData(data['projectile']) # enemy projectile
+        self.weapon_speed: float = data['weaponspeed'] # time between firing two shots in seconds
+        self.range: int = data['range'] # maximum shooting range in degrees
+        self.amount: int = data['amount'] # amount of projectiles spawned when fired
         self.cost: Tuple[int,int] = data['cost'] # how much killing the enemy gives
 
     def random_cost(self) -> int:
@@ -290,6 +291,13 @@ class EnemyData:
         between two values.
         '''
         return random.randint(self.cost[0], self.cost[1])
+
+    def random_range(self) -> int:
+        '''
+        Returns randomly generated range
+        between `-range` and `range`.
+        '''
+        return random.randint(-self.range, self.range)
 
 
 class BulletDeath:
@@ -305,6 +313,9 @@ class BulletDeath:
         self.deletable = False
 
     def draw(self, position:Tuple[int,int]):
+        '''
+        Draws the effect.
+        '''
         pg.draw.circle(
             screen,
             (200,200,200),
@@ -314,6 +325,9 @@ class BulletDeath:
         )
         
     def update(self):
+        '''
+        Updates the effect.
+        '''
         self.key += td*4
         self.inverse_key = 1-self.key
 
@@ -323,6 +337,11 @@ class BulletDeath:
 
 class OngoingDI:
     def __init__(self, position: Tuple[float, float]):
+        '''
+        A counter that is used to represent
+        how much damage player dealt in a certain
+        area around the counter.
+        '''
         self.position: Tuple[float, float] = position
         self.amount: int = 0
         self.update_rect()
@@ -331,16 +350,29 @@ class OngoingDI:
         self.glow: float = 1.0
 
     def update_rect(self):
+        '''
+        Updates the rect of the indicator.
+        
+        When the enemy is hit inside of this rect,
+        the counter increases.
+        '''
         self.rect: pg.Rect = pg.Rect((0,0),(3,2))
         self.rect.center = self.position
 
     def add(self, amount):
+        '''
+        Increases the value on the
+        counter.
+        '''
         self.amount += amount
         self.lifetime = 0.7
         self.glow = 1.0
         self.string = shorten(self.amount)
 
     def draw(self, position: Tuple[int,int]):
+        '''
+        Draws the counter.
+        '''
         # text
         draw.text(
             self.string,
@@ -359,6 +391,9 @@ class OngoingDI:
             )
 
     def update(self):
+        '''
+        Updates the counter.
+        '''
         self.lifetime -= td
         self.glow = lerp(self.glow, 0, td*12)
         if self.lifetime <= 0:
@@ -367,6 +402,13 @@ class OngoingDI:
 
 class DamageIndicator:
     def __init__(self, string:str, position:Tuple[float,float]):
+        '''
+        When `OngoingDI` gets despawned, at its place
+        the `DamageIndicator` gets spawned. It's also a
+        counter that shows how much damage player dealt
+        in a certain area, but this counter fades out over
+        time and doesn't increment when hit.
+        '''
         self.string: str = string
         self.lifetime: float = 1.0
         self.initial_lifetime: float = 1.0
@@ -379,6 +421,9 @@ class DamageIndicator:
         self.deletable = False
 
     def draw(self, position:Tuple[int,int]):
+        '''
+        Draws the counter.
+        '''
         draw.text(
             self.string,
             position, size=11,
@@ -388,6 +433,9 @@ class DamageIndicator:
         )
 
     def update(self):
+        '''
+        Updates the counter.
+        '''
         self.lifetime -= td
         if self.lifetime <= 0:
             self.deletable = True
@@ -401,6 +449,10 @@ class DamageIndicator:
 
 class KillIndicator:
     def __init__(self, amount:int, position:Tuple[float,float]):
+        '''
+        This counter shows the amount of money
+        the player earned when the enemy is killed.
+        '''
         self.amount: int = amount
         self.smooth: int = 0
         self.smooth_key: float = 0.0
@@ -417,15 +469,21 @@ class KillIndicator:
         self.deletable = False
 
     def update_counter(self):
+        '''
+        Updates the text on the counter.
+        '''
         if self.smooth_key < 1:
             self.smooth_key += td*3
             if self.smooth_key > 1:
                 self.smooth_key = 1
 
             self.smooth = int(self.amount*self.smooth_key)
-            self.string = '+'+shorten(self.smooth, capitalize=True)+'$'
+            self.string = '+'+shorten(self.smooth)+'$'
 
     def draw(self, position:Tuple[int,int]):
+        '''
+        Draws the counter.
+        '''
         # text
         draw.text(
             self.string,
@@ -453,6 +511,9 @@ class KillIndicator:
         )
 
     def update(self):
+        '''
+        Updates the object,
+        '''
         self.lifetime -= td
         if self.lifetime <= 0:
             self.deletable = True
@@ -472,19 +533,25 @@ class KillIndicator:
 
 class Enemy:
     def __init__(self, enemy:EnemyData, position:Tuple[int,int]):
-        self.enemy: EnemyData = enemy
-        self.position: Tuple[int,int] = position
+        '''
+        Guess what? An enemy.
+        '''
+        self.enemy: EnemyData = enemy # enemy data
+        self.position: Tuple[int,int] = position # current position
         self.size: Tuple[float,float] = (
             self.enemy.size[0]/TILE_SIZE,
             self.enemy.size[1]/TILE_SIZE
         ) # size of enemy rect in units
         self.update_rect()
 
-        self.health: int = enemy.health
+        self.health: int = enemy.health # how much health is left
         self.direction_angle: float = 0.0 # direction the enemy is facing in radians
-        self.glow_key: float = 0.0
-        self.hp_num_vis: float = 3.0
-        self.health_bar_color: Tuple[int,int,int] = (80,230,50)
+        self.glow_key: float = 0.0 # how bright the enemy is; used when
+                                   # the enemy is hit by a projectile
+        self.hp_num_vis: float = 3.0 # the opacity of the number on the health bar
+        self.health_bar_color: Tuple[int,int,int] = (80,230,50) # the color of the health bar
+
+        self.shoot_timeout: float = enemy.weapon_speed+(random.random()*3)
 
     def hit(self, damage:int):
         '''
@@ -554,7 +621,7 @@ class Enemy:
                 (bar_rect.center[0], bar_rect.center[1]+1),
                 h=0.5, v=0.5,
                 opacity=int(min(255,self.hp_num_vis*400)),
-                shadows=[(1,0)]
+                shadows=[(1,0),(-1,0)]
             )
         # glow
         if self.glow_key > 0.0:
@@ -585,27 +652,45 @@ class Enemy:
         '''
         Updates the enemy.
         '''
+        # moving
         self.position[0] += np.cos(self.direction_angle)*self.enemy.speed*td
         self.position[1] += np.sin(self.direction_angle)*self.enemy.speed*td
 
+        # glowing
         if self.glow_key > 0:
             self.glow_key -= td*7
+
+        # some hp bar stuff
         if (self.health/self.enemy.health) < 0.3:
             self.hp_num_vis = 1
             self.health_bar_color = (255,50,50)
         elif self.hp_num_vis > 0:
             self.hp_num_vis -= td
 
+        # shooting timer
+        if self.shoot_timeout > 0:
+            self.shoot_timeout -= td
+
+        # other
         self.update_rect()
 
 
 class BarDamage:
     def __init__(self, percentage:float):
-        self.percentage: float = percentage
-        self.lifetime: float = 1.0
+        '''
+        That little red thing that fades out
+        on the HP bar when the player gets hit.
+        '''
+        self.percentage: float = percentage # the right edge's "position" on the screen
+                                            # with 0.0 being the leftmost side of the hp
+                                            # bar (6px) and 1.0 being the rightmost side (104px) 
+        self.lifetime: float = 1.0 # opacity of the color
         self.deletable: bool = False
 
     def draw(self):
+        '''
+        Draws the thing
+        '''
         # bar
         bar_rect = pg.Rect(6,6,98*self.percentage,4)
         pg.draw.rect(
@@ -616,6 +701,9 @@ class BarDamage:
         )
 
     def update(self):
+        '''
+        Updates the thing
+        '''
         self.lifetime -= td/1.5
         if self.lifetime <= 0:
             self.deletable = True
@@ -623,13 +711,24 @@ class BarDamage:
 
 class HPDisplay:
     def __init__(self, limit:int):
+        '''
+        Player's HP bar at the top of the screen.
+        '''
         self.limit: int = limit
         self.hp: int = limit
         self.smooth: int = limit
         self.damage_indicators: List[BarDamage] = []
-        self.tint_opacity: float = 0
+        self.tint_opacity: float = 0.0
 
     def update_hp(self, change:int):
+        '''
+        This function is called when the player's
+        HP changes.
+
+        `change` argument is how much it changed with
+        negative values being "hit" and positive
+        being "healed"
+        '''
         # change hp
         hp = int(self.hp) # hp before change
         self.hp += change
@@ -643,9 +742,13 @@ class HPDisplay:
 
         # animations
         if change < 0:
+            self.tint_opacity = 1.0
             self.damage_indicators.append(BarDamage(hp/self.limit))
 
     def draw(self):
+        '''
+        Draws the HP bar
+        '''
         # bg
         rect = pg.Rect(5,5,100,7)
         pg.draw.rect(
@@ -661,7 +764,7 @@ class HPDisplay:
         bar_rect = pg.Rect(6,6,98*(self.smooth/self.limit),5)
         pg.draw.rect(
             screen,
-            (255,255,255),
+            (128,128,128),
             bar_rect,
             0, 2
         )
@@ -680,6 +783,9 @@ class HPDisplay:
         )
 
     def update(self): 
+        '''
+        Updates the HP bar
+        '''
         # smooth hp bar
         if round(self.smooth, 1) != self.hp:
             self.smooth = lerp(self.smooth, self.hp, td*5)
@@ -722,6 +828,7 @@ class Dungeon:
         self.player_health: int = player.health
         self.available_stamina: float = player.stamina
         self.stamina_restore_timer: float = 0.0
+        self.update_player_rect()
 
         # projectiles and weapons
         self.projectiles: List[Projectile] = []
@@ -730,11 +837,14 @@ class Dungeon:
 
         # enemies
         self.enemies: List[Enemy] = [Enemy(EnemyData({
-            'image':      '3s.png',
-            'size':       [24,24],
-            'speed':      2,
-            'health':     1000,
-            'cost':       [50,100],
+            'image':       '3s.png',
+            'size':        [24,24],
+            'speed':       2,
+            'health':      1000,
+            'cost':        [50,100],
+            'weaponspeed': 1,
+            'range':       0,
+            'amount':      1,
             'projectile': {
                 'image':    '3s.png',
                 'size':     [10,10],
@@ -742,7 +852,7 @@ class Dungeon:
                 'slowdown': 10,
                 'lifetime': [0.9, 1],
                 'hit':      'player',
-                'damage':   400
+                'damage':   [5,15]
             }
         }), [random.randint(1,19), random.randint(1,9)]) for i in range(25)]
 
@@ -754,6 +864,7 @@ class Dungeon:
 
         # ui
         self.health_bar: HPDisplay = HPDisplay(player.health)
+        self.vignette_opacity: float = 0.0
 
         # stats
         self.balance: int = 0
@@ -764,32 +875,38 @@ class Dungeon:
 
 
     def get_enemy_projectiles(self) -> List[Projectile]:
+        '''Returns the list of all `enemy` type projectiles.'''
         return [i for i in self.projectiles if i.projectile.hit_type == 'enemy']
 
     def get_player_projectiles(self) -> List[Projectile]:
+        '''Returns the list of all `player` type projectiles.'''
         return [i for i in self.projectiles if i.projectile.hit_type == 'player']
 
-
-    def local_to_global(self, pos: Tuple[float,float]) -> Tuple[float,float]:
+    def units_to_px(self, pos: Tuple[float,float]) -> Tuple[float,float]:
         '''
-        Converts map coordinates to coordinates on screen.
+        Converts map coordinates (units) to coordinates on screen (pixels).
         '''
         return [
             halfx-(self.cam_smoothed_center[0]-pos[0])*TILE_SIZE+self.shake_pos[0],
             halfy-(self.cam_smoothed_center[1]-pos[1])*TILE_SIZE+self.shake_pos[1]
         ]
     
-
     def add_balance(self, amount:int):
+        '''Adds money to player's balance.'''
         self.balance += amount
-    
 
     def damage_player(self, amount:int):
+        '''Damages the player.'''
         self.player_health -= amount
         self.health_bar.update_hp(-amount)
-
+        self.shakiness += 2
+        self.vignette_opacity += 0.5
 
     def damage_enemy(self, amount:int, position:Tuple[float, float]):
+        '''
+        This function gets called when the enemy is
+        hit.
+        '''
         for i in self.damage_indicators:
             if i.rect.collidepoint(position):
                 i.add(amount)
@@ -806,6 +923,14 @@ class Dungeon:
         '''
         Draws the HUD.
         '''
+        # vignette
+        if self.vignette_opacity > 0:
+            draw.image(
+                'vignette.png',
+                (0,0), (windowx,windowy),
+                opacity=int(self.vignette_opacity*255)
+            )
+
         # health bar
         self.health_bar.draw()
 
@@ -822,7 +947,7 @@ class Dungeon:
         '''
         Draws the player.
         '''
-        # cursor pointer
+        # pointer bar
         draw.image(
             'cursor_bar.png',
             self.global_player_pos,
@@ -850,6 +975,11 @@ class Dungeon:
             rotation=self.mouse_degrees_angle,
             flipv=self.mouse_degrees_angle<180
         )
+
+
+    def update_player_rect(self):
+        self.player_rect = pg.Rect((0,0),(1,1))
+        self.player_rect.center = self.player_pos
 
 
     def update_player(self):
@@ -889,8 +1019,7 @@ class Dungeon:
             if keys[pg.K_d]:
                 self.player_pos[0] += speed*td
 
-            self.player_rect = pg.Rect((0,0),(TILE_SIZE,TILE_SIZE))
-            self.player_rect.center = self.player_pos
+            self.update_player_rect()
 
         # making the player not go outside the map
         self.player_pos[0] = max(0.5, min(self.map.size[0]-0.5, self.player_pos[0]))
@@ -904,25 +1033,25 @@ class Dungeon:
         # map
         draw.image(
             self.map.image,
-            self.local_to_global((0,0)),
+            self.units_to_px((0,0)),
             self.map.pixel_size
         )
 
         # projectiles
         for i in self.projectiles:
-            i.draw(self.local_to_global(i.position))
+            i.draw(self.units_to_px(i.position))
 
         # enemies
         for i in self.enemies:
-            i.draw(self.local_to_global(i.position))
+            i.draw(self.units_to_px(i.position))
 
         # effects
         for i in self.effects:
-            i.draw(self.local_to_global(i.position))
+            i.draw(self.units_to_px(i.position))
 
         # damage indicators
         for i in self.damage_indicators:
-            i.draw(self.local_to_global(i.position))
+            i.draw(self.units_to_px(i.position))
 
         # player
         self.draw_player()
@@ -936,7 +1065,7 @@ class Dungeon:
         Updates the game.
         '''
         # updating cursor
-        self.global_player_pos = self.local_to_global(self.player_pos)
+        self.global_player_pos = self.units_to_px(self.player_pos)
         self.mouse_angle = points_to_angle(self.global_player_pos,mouse_pos)
         self.mouse_degrees_angle = rad2deg(self.mouse_angle)
 
@@ -1019,7 +1148,6 @@ class Dungeon:
             elif fx:
                 self.effects.append(BulletDeath(i.position))
 
-
         self.projectiles = new
 
         # enemies
@@ -1034,10 +1162,23 @@ class Dungeon:
                 self.shakiness += 1
                 continue
 
+            # shooting
+            if i.shoot_timeout <= 0:
+                while i.shoot_timeout < 0:
+                    i.shoot_timeout += i.enemy.weapon_speed
+                    i.glow_key = 0.3
+                    for j in range(i.enemy.amount):
+                        self.projectiles.append(Projectile(
+                            i.enemy.projectile,
+                            [i.position[0], i.position[1]],
+                            i.direction_angle+i.enemy.random_range()
+                        ))
+
             # updating
             i.update_path(self.player_pos, [j for j in self.enemies if j.position != i.position])
             i.update()
             new.append(i)
+
         self.enemies = new
 
         # damage indicators
@@ -1061,6 +1202,14 @@ class Dungeon:
         # health bar
         self.health_bar.update()
 
+        # vignette
+        if self.vignette_opacity > 1.0:
+            self.vignette_opacity = 1.0
+        if self.vignette_opacity > 0:
+            self.vignette_opacity -= td*2
+            if self.vignette_opacity < 0:
+                self.vignette_opacity = 0
+
 
 
 # app variables
@@ -1071,15 +1220,15 @@ app = Dungeon(
         'image':      '3s.png',
         'size':       [16,16],
         'speed':      0.05,
-        'range':      20,
-        'amount':     6,
+        'range':      4,
+        'amount':     8,
         'recoil':     0.0,
         'shake':      0.5,
         'projectile': {
             'image':    '3s.png',
-            'size':     [14,14],
+            'size':     [4,24],
             'speed':    [20,25],
-            'slowdown': 5,
+            'slowdown': -10,
             'lifetime': [0.4, 0.6],
             'hit':      'enemy',
             'damage':   [10,20]
