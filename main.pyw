@@ -1,9 +1,23 @@
+'''
+
+!! WARNING !!
+
+This project requires
+pygame-ce to run.
+
+pip uninstall pygame
+pip install pygame-ce
+
+'''
+
+
 import random
 import pygame as pg
 import draw
 import time
 from typing import *
 import numpy as np
+import json
 
 pg.init()
 
@@ -46,6 +60,11 @@ TILE_SIZE = 32
 
 
 # app functions 
+
+def load_datapack(filename:str):
+    with open(filename, encoding='utf-8') as f:
+        return Datapack(json.load(f))
+
 
 def rad2deg(angle:float) -> float:
     '''
@@ -100,11 +119,8 @@ def draw_debug():
         pg.draw.lines(screen, (255,255,255), False, [(i,windowy-val/2) for i, val in enumerate(fps_graph)])
 
     # text
-    draw.text(f'FPS: {dfps}{f" / {fps}" if fps != 0 else ""}', (0,0), (0,0,0))
-    draw.text(f'FPS: {dfps}{f" / {fps}" if fps != 0 else ""}', (0,1))
-    
-    draw.text(f'Timedelta: {round(td,6)}', (0,8), (0,0,0))
-    draw.text(f'Timedelta: {round(td,6)}', (0,9))
+    draw.text(f'FPS: {dfps}{f" / {fps}" if fps != 0 else ""}', (0,1), shadows=[(0,-1)])
+    draw.text(f'Timedelta: {round(td,6)}', (0,9), shadows=[(0,-1)])
 
 def update_size():
     '''
@@ -131,7 +147,25 @@ def update_size():
     windowrect_top = windowrect.topleft
 
 
-# app classes
+# other classes
+
+class Datapack:
+    def __init__(self, data:dict):
+        '''
+        Game datapack - weapon info, maps, player etc.
+        '''
+        self.weapons: List[WeaponData] =\
+            [WeaponData(i) for i in data['weapons']] # list of available weapons
+                                                     # player will be given the first weapon
+                                                     # on this list upon beginning session
+        self.maps: List[MapData] =\
+            [MapData(i) for i in data['maps']] # list of available maps
+        self.waves: List[WaveData] = [WaveData(i) for i in data['waves']] # list of available difficulties
+        
+        self.player: PlayerData = PlayerData(data['player'])
+
+
+# game classes
 
 class ProjectileData:
     def __init__(self, data:dict):
@@ -297,7 +331,102 @@ class EnemyData:
         Returns randomly generated range
         between `-range` and `range`.
         '''
-        return random.randint(-self.range, self.range)
+        return np.deg2rad(random.randint(-self.range, self.range))
+    
+
+class WaveEnemy:
+    def __init__(self, data:dict):
+        '''
+        Enemy data that gets loaded from the datapack file.
+        '''
+        self.wave_start: Tuple[int,int] = data['wave_start'] # the wave this enemy starts to appear on
+        self.amount_start: Tuple[int,int] = data['amount_start'] # the amount of enemies spawned
+                                                                 # on the first time
+        self.amount_end: Tuple[int,int] = data['amount_end'] # maximum amount of enemies that can spawn in one wave
+        self.amount_increase: Tuple[int,int] = data['amount_increase'] # how much the total max amount gets
+                                                                       # increased every wave
+        self.enemy: EnemyData = EnemyData(data['enemy']) # enemy data
+    
+
+class WaveData:
+    def __init__(self, data:dict):
+        '''
+        Wave data a.k.a. game difficulty.
+        '''
+        self.name: str = data['name'] # difficulty name
+        self.spawn_delay: Tuple[float,float] = data['spawn_delay'] # range of time between
+                                                                   # spawning two enemies
+        self.limit_start: Tuple[int,int] = data['limit_start'] # maximum amount of enemies on field
+                                                               # at the start of the session
+        self.limit_increase: Tuple[int,int] = data['limit_increase'] # how much the above limit
+                                                                     # increases every wave
+        self.limit_end: int = data['limit_end'] # maximum amount of enemies on fiela
+        self.enemies: List[WaveEnemy] =\
+            [WaveEnemy(i) for i in data['enemies']] # list of modifiable enemies that can spawn
+        
+
+class EnemyType:
+    def __init__(self, enemy:WaveEnemy):
+        '''
+        An enemy type for a session. Used in
+        QueueManager to select enemies for the 
+        next wave.
+
+        Basically chooses random values and settles
+        on them for the rest of the session.
+        '''
+        self.enemy: WaveEnemy = enemy # original WaveEnemy object
+        self.wave: int = 0 # current wave number
+        self.begin_at: int = random.randint(*enemy.wave_start) # the wave number when to begin spawning the enemies
+        self.amount: int = random.randint(*enemy.amount_start) # initial amount to spawn in one wave
+        self.max_amount: int = random.randint(*enemy.amount_end) # maximum amount that can spawn in one wave
+
+    def random_increase(self):
+        '''
+        Returns how much the amount should increase.
+        '''
+        return random.randint(*self.enemy.amount_increase)
+    
+    def step(self):
+        self.wave += 1
+        if self.wave > self.begin_at:
+            self.amount += self.random_increase()
+
+    def get_amount(self):
+        if self.begin_at > self.wave:
+            return 0
+        return self.amount
+        
+
+class QueueManager:
+    def __init__(self, data:WaveData):
+        '''
+        An object to store
+        '''
+        self.data: WaveData = data
+        self.wave: int = 0
+        self.enemies: List[EnemyType] = [EnemyType(i) for i in data.enemies]
+
+    def step(self):
+        '''
+        Steps one wave forward.
+        '''
+        self.wave += 1
+        for i in self.enemies:
+            i.step()
+
+    def gen_queue(self) -> List[EnemyData]:
+        '''
+        Generates a queue for currently
+        stored wave data.
+        '''
+        out = []
+        for enemy in self.enemies:
+            for i in range(enemy.get_amount()):
+                out.append(enemy.enemy.enemy)
+
+        random.shuffle(out)
+        return out
 
 
 class BulletDeath:
@@ -719,6 +848,8 @@ class HPDisplay:
         self.smooth: int = limit
         self.damage_indicators: List[BarDamage] = []
         self.tint_opacity: float = 0.0
+        self.glow: float = 0.0
+        self.rect: pg.Rect = pg.Rect(5,5,100,7)
 
     def update_hp(self, change:int):
         '''
@@ -732,6 +863,7 @@ class HPDisplay:
         # change hp
         hp = int(self.hp) # hp before change
         self.hp += change
+        self.glow = 1.0
 
         if self.hp < 0:
             change -= self.hp
@@ -750,24 +882,29 @@ class HPDisplay:
         Draws the HP bar
         '''
         # bg
-        rect = pg.Rect(5,5,100,7)
-        pg.draw.rect(
-            screen,
-            (30,30,30),
-            rect,
-            0, 2
-        )
+        pg.draw.rect(screen, (30,30,30), self.rect, 0, 2)
         # damage indicators
         for i in self.damage_indicators:
             i.draw()
         # bar
         bar_rect = pg.Rect(6,6,98*(self.smooth/self.limit),5)
-        pg.draw.rect(
-            screen,
-            (128,128,128),
-            bar_rect,
-            0, 2
-        )
+        pg.draw.rect(screen, (128,128,128), bar_rect, 0, 2)
+
+        # bar glow effect
+        if self.glow > 0:
+            draw.image(
+                'glow.png', (bar_rect.right, bar_rect.centery),
+                (20,20), h=0.5, v=0.5, opacity=int(self.glow*255)
+            )
+            draw.image(
+                'glow.png', (bar_rect.right, bar_rect.centery),
+                (6,12), h=0.5, v=0.5, opacity=int(self.tint_opacity*255)
+            )
+            draw.image(
+                'glow.png', (bar_rect.right, bar_rect.centery),
+                (40,4), h=0.5, v=0.5, opacity=int(self.glow*255)
+            )
+
         # text
         color = (
             255,
@@ -776,10 +913,9 @@ class HPDisplay:
         )
         draw.text(
             str(self.hp),
-            (rect.centerx, rect.centery+1),
-            color,
-            h=0.5, v=0.5,
-            shadows=[(1,0),(-1,0),(0,1),(0,-1)]
+            (self.rect.centerx, self.rect.centery+1),
+            color, h=0.5, v=0.5,
+            shadows=[(0,1),(1,0),(1,1)]
         )
 
     def update(self): 
@@ -805,10 +941,154 @@ class HPDisplay:
             self.tint_opacity -= td*2
             if self.tint_opacity < 0:
                 self.tint_opacity = 0.0
+
+        # bar glow effect
+        if round(self.glow, 1) != 0:
+            self.glow = lerp(self.glow, 0, td*4)
+        elif self.glow != 0: self.glow = 0
+
+
+class WaveIndicator:
+    def __init__(self):
+        '''
+        Wave bar at the top of the screen.
+        '''
+        self.bar_str: str = 'Get ready!' # text below the bar
+        self.top_str: str = None # text on top of the bar
+        self.bar_int: int = 0 # number below the bar (same as int(self.bar))
+        self.bar: float = 0 # bar value
+        self.bar_max: float = 0 # maximum value
+        self.bar_smooth: float = 10 # smoothed value
+
+        self.tint: float = 0.0
+        self.flash1: float = 0.0
+        self.flash2: float = 0.0
+        self.glow: float = 0.0
+        self.rect: pg.Rect = pg.Rect(halfx-75,5,150,7) # bar rect
+
+    def set_max(self, value):
+        self.bar_max = value
+        self.bar = value
+        self.bar_int = int(value)
+        self.bar_smooth = 0
+
+        self.flash1 = 1.0
+        self.flash2 = 1.0
+        self.glow = 1.0
+        self.tint = 1.0
+    
+    def count(self, amount, fx=True):
+        '''
+        Counts down the number at the bottom of the  bar.
+        '''
+        self.bar -= amount
+        self.bar_int = int(self.bar)
+        # glow effects
+        if fx:
+            self.glow = 1.0
+            self.tint = 1.0
+
+    def draw(self):
+        '''
+        Draws the wave counter.
+        '''
+        # bar bg
+        pg.draw.rect(screen, (30,30,30), self.rect, 0, 2)
+        
+        # bar
+        bar_rect = pg.Rect(halfx-74,6,148*(self.bar_smooth/self.bar_max),5)
+        color = (
+            230+self.tint*10,
+            70+self.tint*120,
+            70+self.tint*120
+        )
+        pg.draw.rect(screen, color, bar_rect, 0, 2)
+
+        # bar glow effect
+        if self.glow > 0:
+            draw.image(
+                'glow.png', (bar_rect.right, bar_rect.centery),
+                (20,20), h=0.5, v=0.5, opacity=int(self.glow*255)
+            )
+            draw.image(
+                'glow.png', (bar_rect.right, bar_rect.centery),
+                (6,12), h=0.5, v=0.5, opacity=int(self.tint*255)
+            )
+            draw.image(
+                'glow.png', (bar_rect.right, bar_rect.centery),
+                (40,4), h=0.5, v=0.5, opacity=int(self.glow*255)
+            )
+
+        # text on the bar
+        if self.top_str != None:
+            draw.text(
+                self.top_str, (self.rect.centerx, self.rect.centery+1),
+                (255,255,255), shadows = [(0,1),(1,0),(1,1)], h=0.5,v=0.5
+            )
+
+        # text on the bottom of the bar
+        draw.text(
+            self.bar_str, (self.rect.left, self.rect.bottom+4),
+            (180,180,180), shadows = [(0,1),(1,0),(1,1)]
+        )
+        draw.text(
+            str(self.bar_int), (self.rect.right, self.rect.bottom+4),
+            shadows = [(0,1),(1,0),(1,1)], h=1
+        )
+
+        # flash effect
+        if self.flash2 > 0:
+            draw.image(
+                'glow.png', self.rect.center,
+                (170,30), h=0.5, v=0.5, opacity=int(self.flash1*255)
+            )
+            draw.image(
+                'glow.png', (self.rect.centerx, self.rect.bottom+2),
+                (230,50), h=0.5, v=0.5, opacity=int(self.flash1*255)
+            )
+            draw.image(
+                'glow.png', self.rect.center,
+                (250,10), h=0.5, v=0.5, opacity=int(self.flash2*255)
+            )
+            draw.image(
+                'glow.png', (self.rect.centerx, self.rect.bottom+7),
+                (225,8), h=0.5, v=0.5, opacity=int(self.flash2*128)
+            )
+
+
+    def update(self):
+        '''
+        Updates the wave counter.
+        '''
+        # smooth values
+        if round(self.bar_smooth, 2) != self.bar:
+            self.bar_smooth = lerp(self.bar_smooth, self.bar, td*7)
+        elif self.bar_smooth != self.bar:
+            self.bar_smooth = self.bar
+
+        # tint
+        if self.tint > 0:
+            self.tint -= td*2.5
+            if self.tint < 0:
+                self.tint = 0
+
+        # glow
+        if round(self.glow, 1) != 0:
+            self.glow = lerp(self.glow, 0, td*4)
+        elif self.glow != 0: self.glow = 0
+
+        # flash
+        if round(self.flash1, 2) != 0:
+            self.flash1 = lerp(self.flash1, 0, td*4)
+        elif self.flash1 != 0: self.flash1 = 0
+
+        if round(self.flash2, 2) != 0:
+            self.flash2 = lerp(self.flash2, 0, td)
+        elif self.flash2 != 0: self.flash2 = 0
             
 
 class Dungeon:
-    def __init__(self, weapon:WeaponData, player:PlayerData, map:MapData):
+    def __init__(self, wave:WaveData, map:MapData):
         '''
         The entire gameplay.
         '''
@@ -822,39 +1102,21 @@ class Dungeon:
         ]
 
         # player
-        self.player: PlayerData = player
+        self.player: PlayerData = datapack.player
         self.player_pos: Tuple[float,float] = map.player_spawn
         self.player_vel: Tuple[float,float] = [0,0]
-        self.player_health: int = player.health
-        self.available_stamina: float = player.stamina
+        self.player_health: int = self.player.health
+        self.available_stamina: float = self.player.stamina
         self.stamina_restore_timer: float = 0.0
         self.update_player_rect()
 
         # projectiles and weapons
         self.projectiles: List[Projectile] = []
-        self.weapon: WeaponData = weapon
+        self.weapon: WeaponData = datapack.weapons[0]
         self.shooting_timer: float = 0.0
 
         # enemies
-        self.enemies: List[Enemy] = [Enemy(EnemyData({
-            'image':       '3s.png',
-            'size':        [24,24],
-            'speed':       2,
-            'health':      1000,
-            'cost':        [50,100],
-            'weaponspeed': 1,
-            'range':       0,
-            'amount':      1,
-            'projectile': {
-                'image':    '3s.png',
-                'size':     [10,10],
-                'speed':    [15,20],
-                'slowdown': 10,
-                'lifetime': [0.9, 1],
-                'hit':      'player',
-                'damage':   [5,15]
-            }
-        }), [random.randint(1,19), random.randint(1,9)]) for i in range(25)]
+        self.enemies: List[Enemy] = []
 
         # effects
         self.effects: list = []
@@ -862,8 +1124,22 @@ class Dungeon:
         self.shakiness: float = 0.0
         self.shake_pos: Tuple[float,float] = [0,0]
 
+        # wave data
+        self.wave: WaveData = wave
+        self.wave_bar: WaveIndicator = WaveIndicator() 
+        self.wave_bar.set_max(10)
+        self.is_intermission: bool = True
+        self.intermission_timer: float = 10
+        self.wave_number: int = 0
+
+        # enemy spawning
+        self.enemy_queue: List[EnemyData] = []
+        self.spawn_timer: float = 0
+        self.queue_manager: QueueManager = QueueManager(wave)
+        self.spawn_max: int = random.randint(*wave.limit_start)
+
         # ui
-        self.health_bar: HPDisplay = HPDisplay(player.health)
+        self.health_bar: HPDisplay = HPDisplay(self.player.health)
         self.vignette_opacity: float = 0.0
 
         # stats
@@ -885,11 +1161,20 @@ class Dungeon:
     def units_to_px(self, pos: Tuple[float,float]) -> Tuple[float,float]:
         '''
         Converts map coordinates (units) to coordinates on screen (pixels).
+
+        Also applies shaking.
         '''
         return [
             halfx-(self.cam_smoothed_center[0]-pos[0])*TILE_SIZE+self.shake_pos[0],
             halfy-(self.cam_smoothed_center[1]-pos[1])*TILE_SIZE+self.shake_pos[1]
         ]
+    
+    def get_spawn_location(self):
+        '''
+        Returns a random enemy spawn location.
+        '''
+        pos = random.choice(self.map.enemy_spawn_locations)
+        return [pos[0], pos[1]] 
     
     def add_balance(self, amount:int):
         '''Adds money to player's balance.'''
@@ -914,6 +1199,7 @@ class Dungeon:
                 i.position[1] = lerp(i.position[1], position[1], 0.02)
                 i.update_rect()
                 return
+            
         di = OngoingDI(position)
         di.add(amount)
         self.damage_indicators.append(di)
@@ -933,6 +1219,8 @@ class Dungeon:
 
         # health bar
         self.health_bar.draw()
+        # wave bar
+        self.wave_bar.draw()
 
         # mouse crosshair
         draw.image(
@@ -978,7 +1266,7 @@ class Dungeon:
 
 
     def update_player_rect(self):
-        self.player_rect = pg.Rect((0,0),(1,1))
+        self.player_rect = pg.FRect((0,0),(1,1))
         self.player_rect.center = self.player_pos
 
 
@@ -1026,6 +1314,49 @@ class Dungeon:
         self.player_pos[1] = max(0.5, min(self.map.size[1]-0.5, self.player_pos[1])) 
 
 
+    def update_wave(self):
+        # the bar on top
+        self.wave_bar.update()
+
+        # intermission
+        if self.is_intermission:
+            self.intermission_timer -= td
+            self.wave_bar.count(td, fx=False)
+
+            # switching to gameplay
+            if self.intermission_timer <= 0 or pg.K_SPACE in keysdown:
+                self.wave_number += 1
+                self.queue_manager.step()
+                self.enemy_queue = self.queue_manager.gen_queue()
+                self.wave_bar.set_max(len(self.enemy_queue))
+                self.wave_bar.bar_str = 'Enemies remaining'
+                self.wave_bar.top_str = f'Wave {self.wave_number}'
+
+                self.is_intermission = False
+                self.spawn_max += random.randint(*self.wave.limit_increase)
+                if self.spawn_max > self.wave.limit_end:
+                    self.spawn_max = self.wave.limit_end
+
+        # wave
+        else:
+            # spawning enemies
+            if len(self.enemies) < self.spawn_max:
+                self.spawn_timer -= td
+
+            if len(self.enemy_queue) > 0 and self.spawn_timer <= 0 and len(self.enemies) < self.spawn_max:
+                self.spawn_timer = random.randint(*self.wave.spawn_delay)
+                self.enemies.append(Enemy(self.enemy_queue[0], self.get_spawn_location()))
+                self.enemy_queue.pop(0)
+
+            # switching to intermission
+            if len(self.enemy_queue) == 0 and len(self.enemies) == 0:
+                self.is_intermission = True
+                self.wave_bar.set_max(10)
+                self.wave_bar.bar_str = 'Intermission'
+                self.wave_bar.top_str = f'SPACE to skip to Wave {self.wave_number+1}'
+                self.intermission_timer = 10
+
+
     def draw(self):
         '''
         Draws everything.
@@ -1059,6 +1390,11 @@ class Dungeon:
         # ui
         self.draw_ui()
 
+        # some debug things
+        if debug_opened:
+            pos = self.units_to_px(self.player_rect.topleft)
+            pg.draw.rect(screen, (0,0,255), pg.FRect(pos, (TILE_SIZE,TILE_SIZE)), 1)
+
 
     def update(self):
         '''
@@ -1084,6 +1420,9 @@ class Dungeon:
 
         self.cam_center = [self.player_pos[0],self.player_pos[1]]
 
+        # waves
+        self.update_wave()
+
         # shooting
         if self.shooting_timer > 0.0:
             self.shooting_timer -= td
@@ -1101,10 +1440,11 @@ class Dungeon:
 
                 # shaking and recoil
                 self.shakiness += self.weapon.shake
-                relative = [np.cos(self.mouse_angle),np.sin(self.mouse_angle)]
-                self.player_pos[0] -= relative[0]*self.weapon.recoil
-                self.player_pos[1] -= relative[1]*self.weapon.recoil
-
+                if self.weapon.recoil != 0:
+                    relative = [np.cos(self.mouse_angle),np.sin(self.mouse_angle)]
+                    self.player_pos[0] -= relative[0]*self.weapon.recoil
+                    self.player_pos[1] -= relative[1]*self.weapon.recoil
+                    self.update_player_rect()
 
         # updating player
         self.update_player()
@@ -1158,8 +1498,9 @@ class Dungeon:
             if i.health <= 0:
                 cost = i.enemy.random_cost()
                 self.effects.append(KillIndicator(cost, i.position))
-                self.add_balance(cost)
+                self.add_balance(cost*self.level)
                 self.shakiness += 1
+                self.wave_bar.count(1)
                 continue
 
             # shooting
@@ -1213,35 +1554,11 @@ class Dungeon:
 
 
 # app variables
+                
+datapack = load_datapack('res/datapack.json')
 
 app = Dungeon(
-    WeaponData({
-        'name':       'Shotgun',
-        'image':      '3s.png',
-        'size':       [16,16],
-        'speed':      0.05,
-        'range':      4,
-        'amount':     8,
-        'recoil':     0.0,
-        'shake':      0.5,
-        'projectile': {
-            'image':    '3s.png',
-            'size':     [4,24],
-            'speed':    [20,25],
-            'slowdown': -10,
-            'lifetime': [0.4, 0.6],
-            'hit':      'enemy',
-            'damage':   [10,20]
-        }
-    }),
-    PlayerData({
-        'image':   'chibi.png',
-        'speed':   7,
-        'health':  400,
-        'crit':    1.25,
-        'stamina': 7,
-        'upoints': 25000
-    }),
+    datapack.waves[0],
     MapData({
         'image':        'maps/map1.png',
         'size':         [20,10],

@@ -1,0 +1,121 @@
+{
+    "weapons": [
+        {
+            "name":       "Pistol",
+            "cost":       0,
+            "image":      "3s.png",
+            "size":       [16,16],
+            "speed":      0.15,
+            "range":      3,
+            "amount":     1,
+            "recoil":     0.05,
+            "shake":      0.5,
+            "projectile": {
+                "image":    "3s.png",
+                "size":     [8,16],
+                "speed":    [15,20],
+                "slowdown": 0,
+                "lifetime": [0.4, 0.6],
+                "hit":      "enemy",
+                "damage":   [10,15]
+            }
+        },
+        {
+            "name":       "Shotgun",
+            "cost":       1500,
+            "image":      "3s.png",
+            "size":       [16,16],
+            "speed":      0.7,
+            "range":      15,
+            "amount":     8,
+            "recoil":     0.15,
+            "shake":      2,
+            "projectile": {
+                "image":    "3s.png",
+                "size":     [14,14],
+                "speed":    [10,15],
+                "slowdown": 10,
+                "lifetime": [0.4, 0.6],
+                "hit":      "enemy",
+                "damage":   [4,8]
+            }
+        }
+    ],
+    "maps": [
+        {
+            "image":        "maps/map1.png",
+            "size":         [20,10],
+            "spawn":        [10,5],
+            "enemy_spawns": [[1,8], [18,1], [18,8], [1,1]]
+        }
+    ],
+    "player": {
+        "image":   "chibi.png",
+        "speed":   7,
+        "health":  400,
+        "crit":    1.25,
+        "stamina": 7,
+        "upoints": 25000
+    },
+    "waves": [
+        {
+            "name":           "Normal",
+            "spawn_delay":    [3,6],
+            "limit_start":    [3,4],
+            "limit_increase": [2,3],
+            "limit_end":      25,
+            "enemies": [
+                {
+                    "wave_start":      [1,1],
+                    "amount_start":    [3,5],
+                    "amount_end":      [9,10],
+                    "amount_increase": [1,2],
+                    "enemy": {
+                        "image":       "3s.png",
+                        "size":        [24,24],
+                        "speed":       2,
+                        "health":      250,
+                        "cost":        [50,100],
+                        "weaponspeed": 1,
+                        "range":       0,
+                        "amount":      1,
+                        "projectile": {
+                            "image":    "3s.png",
+                            "size":     [12,12],
+                            "speed":    [15,20],
+                            "slowdown": 10,
+                            "lifetime": [0.9, 1],
+                            "hit":      "player",
+                            "damage":   [5,15]
+                        }
+                    }
+                },
+                {
+                    "wave_start":      [3,6],
+                    "amount_start":    [1,1],
+                    "amount_end":      [6,8],
+                    "amount_increase": [0,1],
+                    "enemy": {
+                        "image":       "3s.png",
+                        "size":        [18,18],
+                        "speed":       3,
+                        "health":      350,
+                        "cost":        [100,200],
+                        "weaponspeed": 0.5,
+                        "range":       15,
+                        "amount":      1,
+                        "projectile": {
+                            "image":    "3s.png",
+                            "size":     [6,6],
+                            "speed":    [20,25],
+                            "slowdown": 0,
+                            "lifetime": [0.2, 0.3],
+                            "hit":      "player",
+                            "damage":   [5,10]
+                        }
+                    }
+                }
+            ]
+        }
+    ]
+}
