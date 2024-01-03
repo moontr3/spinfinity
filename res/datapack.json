@@ -54,8 +54,7 @@
         "speed":   7,
         "health":  400,
         "crit":    1.25,
-        "stamina": 7,
-        "upoints": 25000
+        "stamina": 7
     },
     "waves": [
         {
@@ -91,7 +90,7 @@
                     }
                 },
                 {
-                    "wave_start":      [3,6],
+                    "wave_start":      [3,5],
                     "amount_start":    [1,1],
                     "amount_end":      [6,8],
                     "amount_increase": [0,1],

@@ -17,7 +17,9 @@ import draw
 import time
 from typing import *
 import numpy as np
+import easing_functions as easing
 import json
+import glob
 
 pg.init()
 
@@ -62,8 +64,35 @@ TILE_SIZE = 32
 # app functions 
 
 def load_datapack(filename:str):
+    '''
+    Returns `Datapack` object by file path.
+    '''
     with open(filename, encoding='utf-8') as f:
         return Datapack(json.load(f))
+    
+def load_datapacks(path:str):
+    '''
+    Returns a dict of Datapack objects with
+    filenames as keys and Datapack objects
+    as values.
+    '''
+    out = dict()
+    path = path.rstrip('\\/')+'/'
+
+    for i in glob.glob(path+'*.json'):
+        i = i.replace('\\','/')
+        out[i.removeprefix(path).removesuffix('.json')] = load_datapack(i)
+
+    return out
+
+def refresh_datapacks():
+    '''
+    Reloads all datapacks.
+    '''
+    global datapack, datapacks
+    datapacks = load_datapacks('datapacks/')
+    datapacks['default'] = load_datapack('res/datapack.json')
+    datapack = datapacks['default']
 
 
 def rad2deg(angle:float) -> float:
@@ -301,7 +330,6 @@ class PlayerData:
         self.speed: float = data['speed'] # player speed units/s
         self.health: int = data['health'] # player base health
         self.stamina: int = data['stamina'] # player base stamina
-        self.u_points: int = data['upoints'] # amount of points needed to reach ultimate
 
 
 class EnemyData:
@@ -429,17 +457,27 @@ class QueueManager:
         return out
 
 
-class BulletDeath:
+class Effect:
+    def __init__(self):
+        self.deletable: bool = False
+
+    def draw(self, position:Tuple[int,int]):
+        pass
+
+    def update(self):
+        pass
+
+
+class BulletDeath(Effect):
     def __init__(self, position=Tuple[int,int]):
         '''
         Used to represent a particle that is
         displayed when the bullet hits a wall or
         naturally despawns.
         '''
+        super().__init__()
         self.position: Tuple[int,int] = position
         self.key = 0.0
-
-        self.deletable = False
 
     def draw(self, position:Tuple[int,int]):
         '''
@@ -529,7 +567,7 @@ class OngoingDI:
             self.deletable = True
 
 
-class DamageIndicator:
+class DamageIndicator(Effect):
     def __init__(self, string:str, position:Tuple[float,float]):
         '''
         When `OngoingDI` gets despawned, at its place
@@ -538,6 +576,7 @@ class DamageIndicator:
         in a certain area, but this counter fades out over
         time and doesn't increment when hit.
         '''
+        super().__init__()
         self.string: str = string
         self.lifetime: float = 1.0
         self.initial_lifetime: float = 1.0
@@ -546,8 +585,6 @@ class DamageIndicator:
             random.random()*1-0.5,
             random.random()-5
         ]
-
-        self.deletable = False
 
     def draw(self, position:Tuple[int,int]):
         '''
@@ -576,12 +613,13 @@ class DamageIndicator:
         self.velocity[1] += td*9
 
 
-class KillIndicator:
+class KillIndicator(Effect):
     def __init__(self, amount:int, position:Tuple[float,float]):
         '''
         This counter shows the amount of money
         the player earned when the enemy is killed.
         '''
+        super().__init__()
         self.amount: int = amount
         self.smooth: int = 0
         self.smooth_key: float = 0.0
@@ -594,8 +632,6 @@ class KillIndicator:
 
         self.glow1_key = 1.0
         self.glow2_key = 1.0
-
-        self.deletable = False
 
     def update_counter(self):
         '''
@@ -660,13 +696,70 @@ class KillIndicator:
         self.glow2_key = lerp(self.glow2_key, 0, td*4)
 
 
+class SpawnEffect(Effect):
+    def __init__(self, position:Tuple[int,int]):
+        '''
+        An effect that gets played when the enemy spawns.
+        '''
+        super().__init__()
+        self.position: Tuple[int,int] = [position[0]+0.5, position[1]+0.5] # current position
+        self.anim1: float = 1.0
+        self.anim2: float = 0.0
+        self.anim1_smooth: float = 1.0
+        self.anim2_smooth: float = 0.0
+        self.deletable: bool = False
+
+    def draw(self, position:Tuple[int,int]):
+        '''
+        Draws the effect.
+        '''
+        # animation 1
+        if self.anim1 > 0.0:
+            draw.image(
+                'glow.png', position,
+                [self.anim1_smooth*64+16]*2, 
+                h=0.5,v=0.5, opacity=int((1-self.anim1)*255)
+            )
+        if self.anim2 > 0.0:
+            draw.image(
+                'glow.png', position,
+                [self.anim2_smooth*48]*2, 
+                h=0.5,v=0.5, opacity=int((1-self.anim2)*255)
+            )
+            draw.image(
+                'glow.png', position,
+                [self.anim2_smooth*80, 5], 
+                h=0.5,v=0.5, opacity=int((1-self.anim2)*255)
+            )
+            draw.image(
+                'glow.png', position,
+                [5, self.anim2_smooth*80], 
+                h=0.5,v=0.5, opacity=int((1-self.anim2)*255)
+            )
+
+    def update(self):
+        '''
+        Updates the effect.
+        '''
+        if self.anim1 > 0.0:
+            self.anim1 -= td*1
+            self.anim1_smooth = easing.QuarticEaseIn(0,1,1).ease(self.anim1)
+
+        if self.anim1 < 0.5:
+            self.anim2 += td
+            self.anim2_smooth = easing.QuarticEaseOut(0,1,1).ease(self.anim2)
+
+            if self.anim2 > 1.0:
+                self.deletable = True
+
+
 class Enemy:
     def __init__(self, enemy:EnemyData, position:Tuple[int,int]):
         '''
         Guess what? An enemy.
         '''
         self.enemy: EnemyData = enemy # enemy data
-        self.position: Tuple[int,int] = position # current position
+        self.position: Tuple[int,int] = [position[0]+0.5, position[1]+0.5] # current position
         self.size: Tuple[float,float] = (
             self.enemy.size[0]/TILE_SIZE,
             self.enemy.size[1]/TILE_SIZE
@@ -680,7 +773,8 @@ class Enemy:
         self.hp_num_vis: float = 3.0 # the opacity of the number on the health bar
         self.health_bar_color: Tuple[int,int,int] = (80,230,50) # the color of the health bar
 
-        self.shoot_timeout: float = enemy.weapon_speed+(random.random()*3)
+        self.shoot_timeout: float = enemy.weapon_speed+(random.random()*2+1)
+        self.stun: float = 1 # when greater than 0 the enemy does not move
 
     def hit(self, damage:int):
         '''
@@ -699,7 +793,7 @@ class Enemy:
         self.direction_angle = points_to_angle(self.position,player_pos)
         # keeping the enemies at a certain distance
         # from each other so they don't form a big blob
-        if len(enemies) != 0:
+        if self.stun <= 0 and len(enemies) != 0:
             for i in enemies:
                 if (i.position != self.position) and i.dst_rect.colliderect(self.dst_rect):
                     distance = get_distance(self.position, i.position)
@@ -724,11 +818,15 @@ class Enemy:
         position.
         '''
         # image
+        opacity = 255
+        if self.stun > 0:
+            opacity = (1-self.stun)*255
         draw.image(
             self.enemy.image,
             position,
             self.enemy.size,
-            h=0.5, v=0.5
+            h=0.5, v=0.5,
+            opacity=opacity
         )
         # hp bar
         bar_rect = pg.Rect(
@@ -750,10 +848,10 @@ class Enemy:
                 (bar_rect.center[0], bar_rect.center[1]+1),
                 h=0.5, v=0.5,
                 opacity=int(min(255,self.hp_num_vis*400)),
-                shadows=[(1,0),(-1,0)]
+                shadows=[(1,0),(1,1),(0,1)]
             )
         # glow
-        if self.glow_key > 0.0:
+        if self.glow_key > 0.0 and self.stun <= 0:
             for i in range(int(self.glow_key*2)+1):
                 draw.image(
                     self.enemy.image,
@@ -782,8 +880,11 @@ class Enemy:
         Updates the enemy.
         '''
         # moving
-        self.position[0] += np.cos(self.direction_angle)*self.enemy.speed*td
-        self.position[1] += np.sin(self.direction_angle)*self.enemy.speed*td
+        if self.stun <= 0:
+            self.position[0] += np.cos(self.direction_angle)*self.enemy.speed*td
+            self.position[1] += np.sin(self.direction_angle)*self.enemy.speed*td
+        else:
+            self.stun -= td
 
         # glowing
         if self.glow_key > 0:
@@ -1093,61 +1194,86 @@ class Dungeon:
         The entire gameplay.
         '''
         # map and camers
-        self.map: MapData = map
+        self.map: MapData = map # map data
 
-        self.cam_center = map.player_spawn
-        self.cam_smoothed_center = [
+        self.cam_center = map.player_spawn # where the cam is supposed to be
+        self.cam_smoothed_center = [ # current cam position
             map.player_spawn[0],
             map.size[1]+10
         ]
 
         # player
-        self.player: PlayerData = datapack.player
-        self.player_pos: Tuple[float,float] = map.player_spawn
-        self.player_vel: Tuple[float,float] = [0,0]
-        self.player_health: int = self.player.health
-        self.available_stamina: float = self.player.stamina
-        self.stamina_restore_timer: float = 0.0
+        self.player: PlayerData = datapack.player # player data
+        self.player_pos: Tuple[float,float] = map.player_spawn # player position
+        self.player_vel: Tuple[float,float] = [0,0] # player velocity
+        self.player_health: int = self.player.health # current player health
+        self.available_stamina: float = self.player.stamina # stamina
+        self.stamina_restore_timer: float = 0.0 # how much time is left before the stamina gets restored
         self.update_player_rect()
 
         # projectiles and weapons
-        self.projectiles: List[Projectile] = []
-        self.weapon: WeaponData = datapack.weapons[0]
-        self.shooting_timer: float = 0.0
+        self.projectiles: List[Projectile] = [] # guess what
+        self.weapon: WeaponData = datapack.weapons[0] # current weapon player has
+        self.shooting_timer: float = 0.0 # how much time is left before a player can shoot
 
         # enemies
-        self.enemies: List[Enemy] = []
+        self.enemies: List[Enemy] = [] # guess what
 
         # effects
-        self.effects: list = []
-        self.damage_indicators: List[OngoingDI] = []
-        self.shakiness: float = 0.0
-        self.shake_pos: Tuple[float,float] = [0,0]
+        self.effects: List[Effect] = [] # list of effects
+        self.damage_indicators: List[OngoingDI] = [] # list of damage indicators
+        self.shakiness: float = 0.0 # how shaky the screen is
+        self.shake_pos: Tuple[float,float] = [0,0] # shake pos offset
 
         # wave data
-        self.wave: WaveData = wave
-        self.wave_bar: WaveIndicator = WaveIndicator() 
+        self.wave: WaveData = wave # wave data
+        self.wave_bar: WaveIndicator = WaveIndicator() # wave bar on top 
         self.wave_bar.set_max(10)
-        self.is_intermission: bool = True
-        self.intermission_timer: float = 10
-        self.wave_number: int = 0
+        self.is_intermission: bool = True # guess what
+        self.intermission_timer: float = 10 # how much time of intermission is left
+        self.wave_number: int = 0 # wave number
 
         # enemy spawning
-        self.enemy_queue: List[EnemyData] = []
-        self.spawn_timer: float = 0
-        self.queue_manager: QueueManager = QueueManager(wave)
-        self.spawn_max: int = random.randint(*wave.limit_start)
+        self.enemy_queue: List[EnemyData] = [] # a queue of enemies to spawn
+        self.spawn_timer: float = 0 # time before spawning the next enemy
+        self.queue_manager: QueueManager = QueueManager(wave) # manages what enemies to spawn
+        self.spawn_max: int = random.randint(*wave.limit_start) # max amount of enemies on field
 
         # ui
-        self.health_bar: HPDisplay = HPDisplay(self.player.health)
-        self.vignette_opacity: float = 0.0
+        self.health_bar: HPDisplay = HPDisplay(self.player.health) # health bar
+        self.vignette_opacity: float = 0.0 # red blood vignette opacity
 
         # stats
-        self.balance: int = 0
-        self.points: int = 0
-        self.level: int = 0
-        self.kills: int = 0
-        self.kills_to_next_level: int = 5
+        self.balance: int = 0 # player balance
+        self.score: int = 0 # player score
+        self.level: int = 1 # current player money multiplier
+        self.kills: int = 0 # amount of enemies player killed
+        self.kills_to_next_level: int = 5 # how much kills left to reach the next level
+
+        # other
+        self.paused: bool = False # whether to show the pause menu
+        self.playing: bool = True # whether to run the game
+        self.dead: bool = False # whether the player is dead
+
+        self.dim: float = 0.0 # dim opacity from 0.0 to 1.0
+        self.smooth_dim: float = 1.0 # smoothed out `dim`
+
+    def draw_debug(self):
+        '''
+        Draws debug info on screen.
+        '''
+        data = {
+            'Enemies':     f'{len(self.enemies)} (IQ: {len(self.enemy_queue)})',
+            'Effects':     f'{len(self.effects)} (DI: {len(self.damage_indicators)})',
+            'Projectiles': f'{len(self.projectiles)}',
+            'Stamina':     f'{round(self.available_stamina, 2)}/{self.player.stamina} ({round(self.stamina_restore_timer, 2)}s to restore)',
+        }
+        index = 0
+        for key in data:
+            value = data[key]
+            draw.text(key, (50,70+index*10), shadows=[(0,1)])
+            draw.text(value, (100,70+index*10), shadows=[(0,1)])
+            index += 1
 
 
     def get_enemy_projectiles(self) -> List[Projectile]:
@@ -1203,6 +1329,26 @@ class Dungeon:
         di = OngoingDI(position)
         di.add(amount)
         self.damage_indicators.append(di)
+
+
+    def pause(self):
+        '''
+        Pauses or unpauses the game.
+        '''
+        if self.dead:
+            return
+        self.paused = not self.paused
+        self.dim = int(self.paused)*0.5
+        self.playing = not self.playing
+
+
+    def kill(self):
+        '''
+        Kills the player and terminates the game.
+        '''
+        self.dead = True
+        self.playing = False
+        self.paused = False
     
     
     def draw_ui(self):
@@ -1221,14 +1367,6 @@ class Dungeon:
         self.health_bar.draw()
         # wave bar
         self.wave_bar.draw()
-
-        # mouse crosshair
-        draw.image(
-            'crosshair.png',
-            mouse_pos,
-            (11,11),
-            h=0.5,v=0.5,
-        )
     
 
     def draw_player(self):
@@ -1345,7 +1483,9 @@ class Dungeon:
 
             if len(self.enemy_queue) > 0 and self.spawn_timer <= 0 and len(self.enemies) < self.spawn_max:
                 self.spawn_timer = random.randint(*self.wave.spawn_delay)
-                self.enemies.append(Enemy(self.enemy_queue[0], self.get_spawn_location()))
+                position = self.get_spawn_location()
+                self.enemies.append(Enemy(self.enemy_queue[0], position))
+                self.effects.append(SpawnEffect(position))
                 self.enemy_queue.pop(0)
 
             # switching to intermission
@@ -1395,11 +1535,44 @@ class Dungeon:
             pos = self.units_to_px(self.player_rect.topleft)
             pg.draw.rect(screen, (0,0,255), pg.FRect(pos, (TILE_SIZE,TILE_SIZE)), 1)
 
+        # dimming screen
+        if self.smooth_dim != 0:
+            draw.image(
+                'black.png', size=(windowx,windowy),
+                opacity=int(self.smooth_dim*255)
+            )
+
+        # some debug info
+        if debug_opened:
+            self.draw_debug()
+
+        # mouse crosshair
+        draw.image(
+            'crosshair.png',
+            mouse_pos,
+            (11,11),
+            h=0.5,v=0.5,
+        )
+
 
     def update(self):
         '''
         Updates the game.
         '''
+        # dimming screen
+        if round(self.smooth_dim, 3) == self.dim:
+            self.smooth_dim = self.dim
+        else:
+            self.smooth_dim = lerp(self.smooth_dim, self.dim, td*6)
+            
+        # pausing and pause menu
+        if pg.K_ESCAPE in keysdown:
+            self.pause()
+        
+        if self.paused:
+            
+            return
+
         # updating cursor
         self.global_player_pos = self.units_to_px(self.player_pos)
         self.mouse_angle = points_to_angle(self.global_player_pos,mouse_pos)
@@ -1554,17 +1727,14 @@ class Dungeon:
 
 
 # app variables
-                
-datapack = load_datapack('res/datapack.json')
+
+datapacks: Dict[str, Datapack]
+datapack: Datapack
+refresh_datapacks()
 
 app = Dungeon(
     datapack.waves[0],
-    MapData({
-        'image':        'maps/map1.png',
-        'size':         [20,10],
-        'spawn':        [10,5],
-        'enemy_spawns': [[1,8], [18,1], [18,8], [1,1]]
-    })
+    datapack.maps[0]
 )
 debug_opened = False
 fps_graph = []
