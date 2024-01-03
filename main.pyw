@@ -314,7 +314,7 @@ class EnemyData:
         self.speed: float = data['speed'] # enemy speed units/s
         self.health: int = data['health'] # enemy base health
         self.projectile: ProjectileData = ProjectileData(data['projectile']) # enemy projectile
-        self.weapon_speed: float = data['weaponspeed'] # time between firing two shots in seconds
+        self.weapon_speed: float = data['weaponspeed'] # time between firing two shots in seconds 
         self.range: int = data['range'] # maximum shooting range in degrees
         self.amount: int = data['amount'] # amount of projectiles spawned when fired
         self.cost: Tuple[int,int] = data['cost'] # how much killing the enemy gives
