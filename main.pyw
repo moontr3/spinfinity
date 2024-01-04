@@ -188,14 +188,79 @@ class Datapack:
             [WeaponData(i) for i in data['weapons']] # list of available weapons
                                                      # player will be given the first weapon
                                                      # on this list upon beginning session
-        self.maps: List[MapData] =\
-            [MapData(i) for i in data['maps']] # list of available maps
         self.waves: List[WaveData] = [WaveData(i) for i in data['waves']] # list of available difficulties
         
         self.player: PlayerData = PlayerData(data['player'])
 
 
 # game classes
+        
+class Animation:
+    def __init__(self, frames: List[str], speed: float):
+        '''
+        A sequence of images.
+        '''
+        self.frames: List[str] = frames # list of frames that animation will play
+        self.speed: float = speed # time between two frames per second
+        self.current_time: float = 0.0 # timer used to switch animations
+        self.frame: int = 0 # current animation frame
+
+    @property
+    def image(self) -> str:
+        '''Returns the current frame.'''
+        return self.frames[self.frame]
+
+    def reset(self):
+        '''
+        Resets the animation.
+        '''
+        self.frame = 0
+        self.current_time = 0.0
+
+    def update(self):
+        '''
+        Updates the animation.
+        '''
+        self.current_time += td
+        # switching frames
+        while self.current_time > self.speed:
+            self.current_time -= self.speed
+            self.frame += 1
+            if self.frame >= len(self.frames):
+                self.frame = 0
+
+
+class Animator:
+    def __init__(self, animations:Dict[str, Animation], default:str):
+        self.animations: Dict[str, Animation] = animations # all animations
+        self.current: str = default # key of current animation
+
+    @property
+    def animation(self) -> Animation:
+        '''Returns current animation.'''
+        return self.animations[self.current]
+    
+    @property
+    def image(self) -> str:
+        '''Returns current frame of current animation.'''
+        return self.animation.image
+
+    def set_animation(self, new:str):
+        '''
+        Switches the animation to a new one.
+        '''
+        if self.current == new:
+            return # not resetting the animation if it didn't change
+        
+        self.current = new
+        self.animation.reset()
+
+    def update(self):
+        '''
+        Updates the animator and the current animation.
+        '''
+        self.animation.update()
+
 
 class ProjectileData:
     def __init__(self, data:dict):
@@ -327,10 +392,19 @@ class PlayerData:
         '''
         Used to represent player data.
         '''
-        self.image: str = data['image'] # player sprite
         self.speed: float = data['speed'] # player speed units/s
         self.health: int = data['health'] # player base health
         self.stamina: int = data['stamina'] # player base stamina
+        self.anim: Animator = Animator({
+            'stand': Animation(
+                [i.removeprefix('res\\images\\') for i in glob.glob('res\\images\\player\\stand*.png')],
+                0.4
+            ),
+            'walk': Animation(
+                [i.removeprefix('res\\images\\') for i in glob.glob('res\\images\\player\\walk*.png')],
+                0.05
+            ),
+        }, 'stand') # player animation
 
 
 class EnemyData:
@@ -389,9 +463,18 @@ class WaveData:
                                                                # at the start of the session
         self.limit_increase: Tuple[int,int] = data['limit_increase'] # how much the above limit
                                                                      # increases every wave
-        self.limit_end: int = data['limit_end'] # maximum amount of enemies on fiela
+        self.limit_end: int = data['limit_end'] # maximum amount of enemies on field
+        self.boss_every: int = data['boss_every']
         self.enemies: List[WaveEnemy] =\
             [WaveEnemy(i) for i in data['enemies']] # list of modifiable enemies that can spawn
+        self.bosses: List[EnemyData] =\
+            [EnemyData(i) for i in data['bosses']] # list of boss enemies
+        
+    def random_boss(self) -> EnemyData:
+        '''
+        Returns a random boss enemy.
+        '''
+        return random.choice(self.bosses)
         
 
 class EnemyType:
@@ -718,7 +801,7 @@ class SpawnEffect(Effect):
         if self.anim1 > 0.0:
             draw.image(
                 'glow.png', position,
-                [self.anim1_smooth*64+16]*2, 
+                [self.anim1_smooth*128+16]*2, 
                 h=0.5,v=0.5, opacity=int((1-self.anim1)*255)
             )
         if self.anim2 > 0.0:
@@ -1219,7 +1302,7 @@ class StaminaBar:
         rect.center = position
 
         # bg arc
-        pg.draw.arc(screen, (40,40,40), rect, -0.59, 0.6, 2)
+        pg.draw.arc(screen, (40,40,40), rect, -0.61, 0.6, 2)
 
         # bar
         color = (
@@ -1228,7 +1311,7 @@ class StaminaBar:
             60+self.glow*100
         )
         angle = (self.current/self.max)*1.3-0.6
-        pg.draw.arc(screen, color, rect, -0.59, angle)
+        pg.draw.arc(screen, color, rect, -0.61, angle)
         # glow
         if self.glow > 0:
             glow_pos = [
@@ -1459,6 +1542,8 @@ class Dungeon:
         self.dim: float = 0.0 # dim opacity from 0.0 to 1.0
         self.smooth_dim: float = 1.0 # smoothed out `dim`
         self.vignette_opacity: float = 0.0 # red blood vignette opacity
+        self.dead_key: float = 0.0 # smoothing out death animation
+        self.smooth_dead_key: float = 0.0 # more smoothing out death animation
 
         # wave data
         self.wave: WaveData = wave # wave data
@@ -1467,6 +1552,7 @@ class Dungeon:
         self.is_intermission: bool = True # guess what
         self.intermission_timer: float = 10 # how much time of intermission is left
         self.wave_number: int = 0 # wave number
+        self.waves_before_boss: int = wave.boss_every-1 # how much waves left before boss spawns
 
         # enemy spawning
         self.enemy_queue: List[EnemyData] = [] # a queue of enemies to spawn
@@ -1578,6 +1664,16 @@ class Dungeon:
         di.add(amount)
         self.damage_indicators.append(di)
 
+    def kill_enemy(self, position:Tuple[float,float], cost:int):
+        '''
+        This function gets called when an enemy is
+        killed.
+        '''
+        self.effects.append(KillIndicator(cost, position))
+        self.add_balance(cost)
+        self.add_score(cost)
+        self.shakiness += 1
+        self.wave_bar.count(1)
 
     def pause(self):
         '''
@@ -1589,7 +1685,6 @@ class Dungeon:
         self.dim = int(self.paused)*0.5
         self.playing = not self.playing
 
-
     def kill(self):
         '''
         Kills the player and terminates the game.
@@ -1597,7 +1692,6 @@ class Dungeon:
         self.dead = True
         self.playing = False
         self.paused = False
-    
     
     def draw_ui(self):
         '''
@@ -1621,7 +1715,15 @@ class Dungeon:
         self.score_counter.draw()
         # balance counter
         self.balance_counter.draw()
-    
+        # current weapon
+        draw.image(
+            self.weapon.image, (windowx-10, windowy-10),
+            self.weapon.size, h=1, v=1
+        )
+        draw.text(
+            self.weapon.name, (windowx-17-self.weapon.size[0],windowy-10),
+            h=1, v=1, shadows=[(0,-1)]
+        )
 
     def draw_player(self):
         '''
@@ -1638,7 +1740,7 @@ class Dungeon:
 
         # player
         draw.image(
-            self.player.image,
+            self.player.anim.image,
             self.global_player_pos,
             (TILE_SIZE,TILE_SIZE),
             h=0.5, v=0.5,
@@ -1656,14 +1758,12 @@ class Dungeon:
             flipv=self.mouse_degrees_angle<180
         )
 
-
     def update_player_rect(self):
         '''
         Updates player rect.
         '''
         self.player_rect = pg.FRect((0,0),(1,1))
         self.player_rect.center = self.player_pos
-
 
     def update_player(self):
         '''
@@ -1712,6 +1812,16 @@ class Dungeon:
             self.available_stamina += td*2
             self.stamina_bar.update_value(self.available_stamina)
 
+        # updating animation
+        self.player.anim.set_animation(
+            'walk' if initial_pos != self.player_pos else 'stand'
+        )
+        self.player.anim.update()
+
+        # killing player
+        if self.player_health <= 0:
+            self.kill()
+
 
     def update_wave(self):
         # the bar on top
@@ -1726,7 +1836,14 @@ class Dungeon:
             if self.intermission_timer <= 0 or pg.K_SPACE in keysdown:
                 self.wave_number += 1
                 self.queue_manager.step()
-                self.enemy_queue = self.queue_manager.gen_queue()
+                # boss wave
+                if self.waves_before_boss <= 0:
+                    self.waves_before_boss = self.wave.boss_every
+                    self.enemy_queue = [self.wave.random_boss()]
+                # normal wave
+                else:
+                    self.enemy_queue = self.queue_manager.gen_queue()
+
                 self.wave_bar.set_max(len(self.enemy_queue))
                 self.wave_bar.bar_str = 'Enemies remaining'
                 self.wave_bar.top_str = f'Wave {self.wave_number}'
@@ -1753,9 +1870,15 @@ class Dungeon:
             if len(self.enemy_queue) == 0 and len(self.enemies) == 0:
                 self.is_intermission = True
                 self.wave_bar.set_max(10)
-                self.wave_bar.bar_str = 'Intermission'
-                self.wave_bar.top_str = f'SPACE to skip to Wave {self.wave_number+1}'
+                self.waves_before_boss -= 1
                 self.intermission_timer = 10
+                self.wave_bar.bar_str = 'Intermission'
+                # boss message
+                if self.waves_before_boss <= 0:
+                    self.wave_bar.top_str = f'Wave {self.wave_number+1} - Boss incoming!'
+                # normal message
+                else:
+                    self.wave_bar.top_str = f'SPACE to skip to Wave {self.wave_number+1}'
 
 
     def draw(self):
@@ -1796,6 +1919,19 @@ class Dungeon:
             pos = self.units_to_px(self.player_rect.topleft)
             pg.draw.rect(screen, (0,0,255), pg.FRect(pos, (TILE_SIZE,TILE_SIZE)), 1)
 
+        # death gui
+        if self.dead:
+            # red overlay
+            draw.image(
+                'red.png', size=(windowx,windowy),
+                opacity=int(200-self.smooth_dead_key*120)
+            )
+            # text
+            draw.image(
+                'dead.png', (halfx, halfy), opacity=int(155+self.smooth_dead_key*100),
+                size=(330-self.smooth_dead_key*60,110-self.smooth_dead_key*20), h=0.5, v=0.5
+            )
+            
         # dimming screen
         if self.smooth_dim != 0:
             draw.image(
@@ -1826,12 +1962,19 @@ class Dungeon:
         else:
             self.smooth_dim = lerp(self.smooth_dim, self.dim, td*6)
             
+        # death animation
+        if self.dead:
+            if self.dead_key < 1.0:
+                self.dead_key += td/1.5
+                self.smooth_dead_key = easing.ExponentialEaseOut(0,1,1).ease(self.dead_key)
+                if self.dead_key > 1.0:
+                    self.dead_key = 1.0
+
         # pausing and pause menu
         if pg.K_ESCAPE in keysdown:
             self.pause()
         
-        if self.paused:
-            
+        if not self.playing:
             return
 
         # updating cursor
@@ -1934,11 +2077,7 @@ class Dungeon:
             # we just remove unneeded enemy objects here)
             if i.health <= 0:
                 cost = i.enemy.random_cost()
-                self.effects.append(KillIndicator(cost, i.position))
-                self.add_balance(cost)
-                self.add_score(cost)
-                self.shakiness += 1
-                self.wave_bar.count(1)
+                self.kill_enemy(i.position, cost)
                 continue
 
             # shooting
@@ -1998,6 +2137,16 @@ class Dungeon:
 
 
 # app variables
+                
+maps = [
+    MapData({
+        "image":        "maps/map1.png",
+        "size":         [20,10],
+        "spawn":        [10,5],
+        "enemy_spawns": [[1,8], [18,1], [18,8], [1,1]]
+    })
+]
+
 
 datapacks: Dict[str, Datapack]
 datapack: Datapack
@@ -2005,7 +2154,7 @@ refresh_datapacks()
 
 app = Dungeon(
     datapack.waves[0],
-    datapack.maps[0]
+    maps[0]
 )
 debug_opened = False
 fps_graph = []

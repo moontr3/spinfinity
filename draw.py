@@ -76,7 +76,7 @@ class ImageType:
         saved in the dictionary), resizes the image using
         `init_image` and returns it.
         '''
-        if size == self.base_image_size:
+        if size == self.base_image_size and fliph == False and flipv == False:
             return self.base_image
 
         str_param = self.param_to_str(size, smooth, fliph, flipv)
