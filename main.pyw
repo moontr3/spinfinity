@@ -34,12 +34,13 @@ ratiox = 16
 ratioy = 9
 
 clock = pg.time.Clock()
-dfps = 0.0      # current fps
-prev_dfps = 0.0 # previous fps
-fps = 0         # target fps (0 - no limit)
-td = 0.0        # timedelta
-                # how much time passed between two frames
-                # used to run the game independent of framerate
+dfps = 0.0       # current fps
+prev_dfps = 0.0  # previous fps
+fps = 0          # target fps (0 - no limit)
+td = 0.0         # timedelta
+                 # how much time passed between two frames
+                 # used to run the game independent of framerate
+halfpi = np.pi/2 # half of pi
 
 window = pg.display.set_mode((screenx,screeny), pg.RESIZABLE) # the window surface
 screen = pg.Surface((windowx, windowy)) # the surface that everything gets
@@ -91,8 +92,8 @@ def refresh_datapacks():
     '''
     global datapack, datapacks
     datapacks = load_datapacks('datapacks/')
-    datapacks['default'] = load_datapack('res/datapack.json')
-    datapack = datapacks['default']
+    datapacks['Default'] = load_datapack('res/datapack.json')
+    datapack = datapacks['Default']
 
 
 def rad2deg(angle:float) -> float:
@@ -1186,6 +1187,234 @@ class WaveIndicator:
         if round(self.flash2, 2) != 0:
             self.flash2 = lerp(self.flash2, 0, td)
         elif self.flash2 != 0: self.flash2 = 0
+
+
+class StaminaBar:
+    def __init__(self, amount:int):
+        '''
+        Stamina bar.
+        '''
+        self.max: int = amount # maximum amount of stamina
+        self.current: int = amount # current stamina
+        self.key: float = 0 # animation key
+        self.glow: float = 0.0 # glow opacity
+
+    def update_value(self, new_value:int):
+        '''
+        Updates the value on the bar.
+        '''
+        self.current = new_value
+        self.glow = 1.0
+
+    def draw(self, position:Tuple[int,int]):
+        '''
+        Draws the bar.
+        '''
+        if self.key <= 0.0:
+            return
+        
+        # position and easing
+        ease = easing.QuarticEaseOut(0,1,1).ease(self.key)
+        rect = pg.Rect((0,0), [round(ease*60)]*2)
+        rect.center = position
+
+        # bg arc
+        pg.draw.arc(screen, (40,40,40), rect, -0.59, 0.6, 2)
+
+        # bar
+        color = (
+            255,
+            220+self.glow*25,
+            60+self.glow*100
+        )
+        angle = (self.current/self.max)*1.3-0.6
+        pg.draw.arc(screen, color, rect, -0.59, angle)
+        # glow
+        if self.glow > 0:
+            glow_pos = [
+                np.cos(angle)*(30*ease)+position[0],
+                -np.sin(angle)*(30*ease)+position[1]+1
+            ]
+            draw.image(
+                'glow.png', glow_pos,
+                (14,12), h=0.5, v=0.5, 
+                opacity=int(max(0,self.glow*128))
+            )
+            draw.image(
+                'glow.png', glow_pos,
+                (24,4), h=0.5, v=0.5, 
+                opacity=int(self.glow*255)
+            )
+
+    def update(self):
+        '''
+        Updates the bar.
+        '''
+        # glow
+        if round(self.glow, 2) != 0:
+            self.glow = lerp(self.glow, 0, td*6)
+        elif self.glow != 0:
+            self.glow = 0
+
+        # fading animation
+        if self.current < self.max:
+            if self.key < 1.0:
+                self.key += td*4
+        elif self.key > 0.0:
+            self.key -= td*2
+
+        if self.key > 1.0:
+            self.key = 1.0
+        if self.key < 0.0:
+            self.key = 0.0
+
+
+class ScoreCounter:
+    def __init__(self):
+        '''
+        Score counter at the top of the screen.
+        '''
+        self.score: int = 0 # current score
+        self.smooth_score: float = 0 # smoothed score
+        self.glow1: float = 0.0 # big glow opacity
+        self.glow2: float = 0.0 # small glow opacity
+
+    def add(self, amount:int):
+        '''
+        Adds amount to score counter.
+        '''
+        self.score += amount
+        self.glow1 = 1.0
+        self.glow2 = 1.0
+
+    def draw(self):
+        '''
+        Draws the counter.
+        '''
+        offset = max(0,self.glow1*6-3)
+        # counter
+        string = str(round(self.smooth_score))
+        draw.text(
+            round(self.smooth_score), (windowx-7-offset, 7),
+            style='round', size=16, h=1,
+            shadows=[(0,-2)]
+        )
+        # faded out zeroes
+        zeroes = max(0,8-len(string))
+        if zeroes > 0:
+            draw.text(
+                '0'*zeroes, (windowx-7-len(string)*9-offset,7),
+                style='round', size=16, h=1,
+                shadows=[(0,-2)], opacity=80
+            )
+
+        # glow
+        if self.glow2 > 0:
+            draw.image(
+                'glow.png', (windowx-40-offset,14), (90,30),
+                h=0.5, v=0.5, opacity=int(self.glow1*255)
+            )
+            draw.image(
+                'glow.png', (windowx-40-offset,14), (175,6),
+                h=0.5, v=0.5, opacity=int(self.glow2*255)
+            )
+
+    def update(self):
+        '''
+        Updates the counter.
+        '''
+        # smoothing score counter
+        if round(self.smooth_score, 1) != self.score:
+            self.smooth_score = lerp(self.smooth_score, self.score, td*7)
+        elif self.smooth_score != self.score:
+            self.smooth_score = self.score
+
+        # big glow
+        if self.glow1 > 0.0:
+            self.glow1 -= td*2
+
+        # small glow
+        if round(self.glow2, 2) != 0:
+            self.glow2 = lerp(self.glow2, 0, td*1.5)
+        elif self.glow2 != 0:
+            self.glow2 = 0
+
+
+class BalanceCounter:
+    def __init__(self):
+        '''
+        Balance counter at the top of the screen.
+        '''
+        self.balance: int = 0 # current balance
+        self.smooth_balance: float = 0 # smoothed balance
+        self.glow1: float = 0.0 # big glow opacity
+        self.glow2: float = 0.0 # small glow opacity
+
+    def add(self, amount:int):
+        '''
+        Adds amount to balance counter.
+        '''
+        self.balance += amount
+        self.glow1 = 1.0
+        self.glow2 = 1.0
+
+    def draw(self):
+        '''
+        Draws the counter.
+        '''
+        offset = max(0,self.glow1*6-3)
+        # counter
+        string = str(round(self.smooth_balance))
+        draw.text(
+            round(self.smooth_balance), (windowx-7-offset,27),
+            style='big', size=11, h=1, color=(170,255,130),
+            shadows=[(0,-2)]
+        )
+        # faded out zeroes
+        zeroes = max(0,7-len(string))
+        if zeroes > 0:
+            draw.text(
+                '0'*zeroes, (windowx-7-len(string)*7-offset,27),
+                style='big', size=11, h=1, shadows=[(0,-2)],
+                opacity=80, color=(230,255,220)
+            )
+        # dollar sign
+        draw.text(
+            '$', (windowx-7-max(7,len(string))*7-offset,27),
+            style='big', size=11, h=1, color=(170,255,130),
+            shadows=[(0,-2)]
+        )
+
+        # glow
+        if self.glow2 > 0:
+            draw.image(
+                'glow.png', (windowx-35-offset,32), (80,25),
+                h=0.5, v=0.5, opacity=int(self.glow1*255)
+            )
+            draw.image(
+                'glow.png', (windowx-35-offset,32), (160,4),
+                h=0.5, v=0.5, opacity=int(self.glow2*255)
+            )
+
+    def update(self):
+        '''
+        Updates the counter.
+        '''
+        # smoothing balance counter
+        if round(self.smooth_balance, 1) != self.balance:
+            self.smooth_balance = lerp(self.smooth_balance, self.balance, td*7)
+        elif self.smooth_balance != self.balance:
+            self.smooth_balance = self.balance
+
+        # big glow
+        if self.glow1 > 0.0:
+            self.glow1 -= td*2
+
+        # small glow
+        if round(self.glow2, 2) != 0:
+            self.glow2 = lerp(self.glow2, 0, td*1.5)
+        elif self.glow2 != 0:
+            self.glow2 = 0
             
 
 class Dungeon:
@@ -1207,9 +1436,12 @@ class Dungeon:
         self.player_pos: Tuple[float,float] = map.player_spawn # player position
         self.player_vel: Tuple[float,float] = [0,0] # player velocity
         self.player_health: int = self.player.health # current player health
+        self.update_player_rect()
+
+        # stamina
         self.available_stamina: float = self.player.stamina # stamina
         self.stamina_restore_timer: float = 0.0 # how much time is left before the stamina gets restored
-        self.update_player_rect()
+        self.stamina_restore_speed: float = 2.0
 
         # projectiles and weapons
         self.projectiles: List[Projectile] = [] # guess what
@@ -1224,6 +1456,9 @@ class Dungeon:
         self.damage_indicators: List[OngoingDI] = [] # list of damage indicators
         self.shakiness: float = 0.0 # how shaky the screen is
         self.shake_pos: Tuple[float,float] = [0,0] # shake pos offset
+        self.dim: float = 0.0 # dim opacity from 0.0 to 1.0
+        self.smooth_dim: float = 1.0 # smoothed out `dim`
+        self.vignette_opacity: float = 0.0 # red blood vignette opacity
 
         # wave data
         self.wave: WaveData = wave # wave data
@@ -1241,7 +1476,9 @@ class Dungeon:
 
         # ui
         self.health_bar: HPDisplay = HPDisplay(self.player.health) # health bar
-        self.vignette_opacity: float = 0.0 # red blood vignette opacity
+        self.stamina_bar: StaminaBar = StaminaBar(self.player.stamina) # stamina bar
+        self.score_counter: ScoreCounter = ScoreCounter() # score counter
+        self.balance_counter: BalanceCounter = BalanceCounter() # balance counter
 
         # stats
         self.balance: int = 0 # player balance
@@ -1255,8 +1492,6 @@ class Dungeon:
         self.playing: bool = True # whether to run the game
         self.dead: bool = False # whether the player is dead
 
-        self.dim: float = 0.0 # dim opacity from 0.0 to 1.0
-        self.smooth_dim: float = 1.0 # smoothed out `dim`
 
     def draw_debug(self):
         '''
@@ -1303,8 +1538,21 @@ class Dungeon:
         return [pos[0], pos[1]] 
     
     def add_balance(self, amount:int):
-        '''Adds money to player's balance.'''
+        '''
+        Adds money to player's balance.
+        '''
         self.balance += amount
+        self.balance_counter.add(amount)
+
+    def add_score(self, amount:int):
+        '''
+        Adds score to player's score counter.
+
+        Applies score multiplier.
+        '''
+        amount *= self.level
+        self.score += amount
+        self.score_counter.add(amount)
 
     def damage_player(self, amount:int):
         '''Damages the player.'''
@@ -1367,6 +1615,12 @@ class Dungeon:
         self.health_bar.draw()
         # wave bar
         self.wave_bar.draw()
+        # stamina bar
+        self.stamina_bar.draw(self.global_player_pos)
+        # score counter
+        self.score_counter.draw()
+        # balance counter
+        self.balance_counter.draw()
     
 
     def draw_player(self):
@@ -1404,6 +1658,9 @@ class Dungeon:
 
 
     def update_player_rect(self):
+        '''
+        Updates player rect.
+        '''
         self.player_rect = pg.FRect((0,0),(1,1))
         self.player_rect.center = self.player_pos
 
@@ -1412,6 +1669,7 @@ class Dungeon:
         '''
         Updates the player.
         '''
+        initial_pos = [self.player_pos[0], self.player_pos[1]]
         # checking if the player is moving rn
         moving = [i for i in [keys[pg.K_w], keys[pg.K_a], keys[pg.K_s], keys[pg.K_d]] if i]
         # calculating how fast should the player move
@@ -1422,17 +1680,6 @@ class Dungeon:
         if len(moving) == 2:
             speed *= 0.77 # completely made up number
                           # no like fr i don't know what does this number mean
-
-        # decreasing stamina when sprinting
-        if keys[pg.K_LSHIFT] and moving and self.available_stamina > 0:
-            self.available_stamina -= td
-            self.stamina_restore_timer = 3
-        # resting to restore stamina
-        elif self.stamina_restore_timer > 0:
-            self.stamina_restore_timer -= td
-        # restoring stamina when rested
-        elif self.available_stamina < self.player.stamina:
-            self.available_stamina += td*2
 
         # moving player
         if moving:
@@ -1450,6 +1697,20 @@ class Dungeon:
         # making the player not go outside the map
         self.player_pos[0] = max(0.5, min(self.map.size[0]-0.5, self.player_pos[0]))
         self.player_pos[1] = max(0.5, min(self.map.size[1]-0.5, self.player_pos[1])) 
+        
+        # decreasing stamina when sprinting
+        if initial_pos != self.player_pos and\
+            keys[pg.K_LSHIFT] and moving and self.available_stamina > 0:
+                self.available_stamina -= td
+                self.stamina_bar.update_value(self.available_stamina)
+                self.stamina_restore_timer = self.stamina_restore_speed
+        # resting to restore stamina
+        elif self.stamina_restore_timer > 0:
+            self.stamina_restore_timer -= td
+        # restoring stamina when rested
+        elif self.available_stamina < self.player.stamina:
+            self.available_stamina += td*2
+            self.stamina_bar.update_value(self.available_stamina)
 
 
     def update_wave(self):
@@ -1622,6 +1883,9 @@ class Dungeon:
         # updating player
         self.update_player()
 
+        # updating stamina
+        self.stamina_bar.update()
+
         # projectiles
         new = []
         for i in self.projectiles:
@@ -1671,7 +1935,8 @@ class Dungeon:
             if i.health <= 0:
                 cost = i.enemy.random_cost()
                 self.effects.append(KillIndicator(cost, i.position))
-                self.add_balance(cost*self.level)
+                self.add_balance(cost)
+                self.add_score(cost)
                 self.shakiness += 1
                 self.wave_bar.count(1)
                 continue
@@ -1715,6 +1980,12 @@ class Dungeon:
 
         # health bar
         self.health_bar.update()
+
+        # score counter
+        self.score_counter.update()
+        
+        # balance counter
+        self.balance_counter.update()
 
         # vignette
         if self.vignette_opacity > 1.0:
