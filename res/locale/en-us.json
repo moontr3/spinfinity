@@ -1,0 +1,10 @@
+{
+    "name": "English",
+    "level_bar": "Level {}",
+    "intermission": "Intermission",
+    "upcoming_wave": "SPACE to skip to Wave {}",
+    "upcoming_wave_boss": "SPACE to skip to Boss Wave {}",
+    "wave": "Wave {}",
+    "enemies_remaining": "Enemies remaining",
+    "get_ready": "Get ready!"
+}

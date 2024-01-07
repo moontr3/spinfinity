@@ -94,6 +94,37 @@ def refresh_datapacks():
     datapacks = load_datapacks('datapacks/')
     datapacks['Default'] = load_datapack('res/datapack.json')
     datapack = datapacks['Default']
+    
+def load_locales(path:str):
+    '''
+    Returns a dict of Locale objects with
+    filenames as keys and Locale objects
+    as values.
+    '''
+    out = dict()
+    path = path.rstrip('\\/')+'/'
+
+    for i in glob.glob(path+'*.json'):
+        i = i.replace('\\','/')
+        code = i.removeprefix(path).removesuffix('.json')
+        out[code] = load_locale(i, code)
+
+    return out
+
+def refresh_locales():
+    '''
+    Reloads all locales.
+    '''
+    global locales
+    locales = load_locales('res/locale')
+
+
+def load_locale(filename:str, code:str):
+    '''
+    Returns `Locale` object by file path.
+    '''
+    with open(filename, encoding='utf-8') as f:
+        return Locale(code, json.load(f))
 
 
 def rad2deg(angle:float) -> float:
@@ -179,6 +210,58 @@ def update_size():
 
 # other classes
 
+class SaveData:
+    def __init__(self, filepath:str):
+        '''
+        Player save manager.
+        '''    
+        self.file: str = filepath
+        self.load()
+
+    def new(self):
+        '''
+        Deletes the current save and creates a
+        new one.
+        '''
+        self.locale_code: str = 'en-us'
+        self.update_locale()
+
+        self.save()
+
+    def load(self):
+        '''
+        Try loading the save file.
+        '''
+        # reading file data
+        try:
+            with open(self.file, encoding='utf-8') as f:
+                data = json.load(f)
+        except:
+            self.new()
+            return
+        # loading save
+        self.locale_code: str = data['locale']
+        self.update_locale()
+        
+    def save(self):
+        '''
+        Save current data to file.
+        '''
+        # composing json
+        data = {
+            'locale': self.locale_code
+        }
+        # saving to file
+        with open(self.file, 'w', encoding='utf-8') as f:
+            json.dump(data, f)
+
+    def update_locale(self):
+        '''
+        Update locale object.
+        '''
+        self.locale: Locale = locales[self.locale_code]
+
+
 class Datapack:
     def __init__(self, data:dict):
         '''
@@ -191,6 +274,21 @@ class Datapack:
         self.waves: List[WaveData] = [WaveData(i) for i in data['waves']] # list of available difficulties
         
         self.player: PlayerData = PlayerData(data['player'])
+
+    
+class Locale:
+    def __init__(self, key:str, data:dict):
+        '''
+        Localization data.
+        '''
+        self.key: str = key
+        self.name: str = data['name']
+        self.data: Dict[str: str] = data
+
+    def f(self, key:str, format:List[str]=[]):
+        '''Returns requested value and formats it if needed.'''
+        if len(format) == 0: return self.data[key]
+        else: return self.data[key].format(*format)
 
 
 # game classes
@@ -305,7 +403,10 @@ class ProjectileData:
 
 
 class Projectile:
-    def __init__(self, projectile:ProjectileData, position:Tuple[int,int], angle:float):
+    def __init__(
+        self, projectile:ProjectileData, position:Tuple[int,int],
+        angle:float, damage_multiplier:float=1.0
+    ):
         '''
         Projectile that will be displayed on screen.
         '''
@@ -315,7 +416,7 @@ class Projectile:
         self.degrees_angle = rad2deg(angle) # angle in degrees
         self.speed = projectile.random_speed() # current speed px/s
         self.lifetime: float = projectile.random_lifetime() # lifetime left in seconds
-        self.damage: int = projectile.random_damage() # how much damage projectile has
+        self.damage: int = round(projectile.random_damage()*damage_multiplier) # how much damage projectile has
 
         self.velocity: Tuple[float,float] = [ # X and Y velocities of the projectile
             np.cos(angle),
@@ -351,7 +452,6 @@ class WeaponData:
         '''
         Initial weapon data.
         '''
-        self.name: str = data['name'] # weapon name
         self.image: str = data['image'] # weapon image
         self.size: Tuple[int,int] = data['size'] # weapon image size in pixels
         self.speed: float = data['speed'] # what time has to pass between two shots in seconds
@@ -437,6 +537,16 @@ class EnemyData:
         return np.deg2rad(random.randint(-self.range, self.range))
     
 
+class BadgeData:
+    def __init__(self, data:dict):
+        '''
+        Badge data that gets loaded from the datapack file.
+        '''
+        self.health: int = data['health'] # how much health increases when the badge is collected
+        self.stamina: float = data['stamina'] # how much stamina increases when the badge is collected
+        self.damage: float = data['damage'] # how much damage multiplier increases when the badge is collected
+    
+
 class WaveEnemy:
     def __init__(self, data:dict):
         '''
@@ -465,6 +575,8 @@ class WaveData:
                                                                      # increases every wave
         self.limit_end: int = data['limit_end'] # maximum amount of enemies on field
         self.boss_every: int = data['boss_every']
+        self.level_up_kills: int = data['level_up_kills']
+        self.badges: BadgeData = BadgeData(data['badges']) # badges data
         self.enemies: List[WaveEnemy] =\
             [WaveEnemy(i) for i in data['enemies']] # list of modifiable enemies that can spawn
         self.bosses: List[EnemyData] =\
@@ -840,7 +952,7 @@ class SpawnEffect(Effect):
 class Enemy:
     def __init__(self, enemy:EnemyData, position:Tuple[int,int]):
         '''
-        Guess what? An enemy.
+        An enemy.
         '''
         self.enemy: EnemyData = enemy # enemy data
         self.position: Tuple[int,int] = [position[0]+0.5, position[1]+0.5] # current position
@@ -860,6 +972,9 @@ class Enemy:
         self.shoot_timeout: float = enemy.weapon_speed+(random.random()*2+1)
         self.stun: float = 1 # when greater than 0 the enemy does not move
 
+        self.spin_degree: float = 0.0 # spin degree
+        self.spin_velocity: float = 50.0 # spin velocity
+
     def hit(self, damage:int):
         '''
         This function gets called when the
@@ -868,6 +983,8 @@ class Enemy:
         self.health -= damage
         self.glow_key = 1.0
         self.hp_num_vis = 2.0
+        if self.spin_velocity < 1000:
+            self.spin_velocity += 5
 
     def update_path(self, player_pos:Tuple[float,float], enemies:List):
         '''
@@ -906,11 +1023,8 @@ class Enemy:
         if self.stun > 0:
             opacity = (1-self.stun)*255
         draw.image(
-            self.enemy.image,
-            position,
-            self.enemy.size,
-            h=0.5, v=0.5,
-            opacity=opacity
+            self.enemy.image, position, self.enemy.size,
+            h=0.5, v=0.5, opacity=opacity, rotation=self.spin_degree
         )
         # hp bar
         bar_rect = pg.Rect(
@@ -941,8 +1055,9 @@ class Enemy:
                     self.enemy.image,
                     position,
                     self.enemy.size,
-                    h=0.5, v=0.5,
-                    blending=pg.BLEND_RGBA_ADD 
+                    h=0.5, v=0.5, 
+                    blending=pg.BLEND_RGBA_ADD,
+                    rotation=self.spin_degree 
                 ) # blending doesn't support opacity so my solution
                   # is drawing the same image over and over again
                   # with the same opacity and gradually decreasing
@@ -984,6 +1099,16 @@ class Enemy:
         # shooting timer
         if self.shoot_timeout > 0:
             self.shoot_timeout -= td
+
+        # spinning
+        if self.spin_velocity > 0:
+            self.spin_degree += self.spin_velocity*td*30
+            while self.spin_degree > 360:
+                self.spin_degree -= 360
+
+            self.spin_velocity -= td*20
+            if self.spin_velocity < 0:
+                self.spin_velocity = 0
 
         # other
         self.update_rect()
@@ -1034,7 +1159,26 @@ class HPDisplay:
         self.damage_indicators: List[BarDamage] = []
         self.tint_opacity: float = 0.0
         self.glow: float = 0.0
+        self.flash1: float = 0.0
+        self.flash2: float = 0.0
         self.rect: pg.Rect = pg.Rect(5,5,100,7)
+
+    def heal(self):
+        '''
+        Completely heals the player.
+        '''
+        self.hp = self.limit
+        self.flash1 = 1.0
+        self.flash2 = 1.0
+
+    def set_max(self, add:int):
+        '''
+        Adds HP to the limit.
+        '''
+        self.limit += add
+        self.hp += add
+        self.flash1 = 1.0
+        self.flash2 = 1.0
 
     def update_hp(self, change:int):
         '''
@@ -1103,6 +1247,17 @@ class HPDisplay:
             shadows=[(0,1),(1,0),(1,1)]
         )
 
+        # flash effect
+        if self.flash2 > 0:
+            draw.image(
+                'glow.png', self.rect.center,
+                (170,30), h=0.5, v=0.5, opacity=int(self.flash1*255)
+            )
+            draw.image(
+                'glow.png', self.rect.center,
+                (250,10), h=0.5, v=0.5, opacity=int(self.flash2*255)
+            )
+
     def update(self): 
         '''
         Updates the HP bar
@@ -1132,13 +1287,22 @@ class HPDisplay:
             self.glow = lerp(self.glow, 0, td*4)
         elif self.glow != 0: self.glow = 0
 
+        # flash effect
+        if round(self.flash1, 2) != 0:
+            self.flash1 = lerp(self.flash1, 0, td*4)
+        elif self.flash1 != 0: self.flash1 = 0
+
+        if round(self.flash2, 2) != 0:
+            self.flash2 = lerp(self.flash2, 0, td)
+        elif self.flash2 != 0: self.flash2 = 0
+
 
 class WaveIndicator:
     def __init__(self):
         '''
         Wave bar at the top of the screen.
         '''
-        self.bar_str: str = 'Get ready!' # text below the bar
+        self.bar_str: str = save.locale.f('get_ready') # text below the bar
         self.top_str: str = None # text on top of the bar
         self.bar_int: int = 0 # number below the bar (same as int(self.bar))
         self.bar: float = 0 # bar value
@@ -1164,7 +1328,7 @@ class WaveIndicator:
     
     def count(self, amount, fx=True):
         '''
-        Counts down the number at the bottom of the  bar.
+        Counts down the number at the bottom of the bar.
         '''
         self.bar -= amount
         self.bar_int = int(self.bar)
@@ -1498,6 +1662,313 @@ class BalanceCounter:
             self.glow2 = lerp(self.glow2, 0, td*1.5)
         elif self.glow2 != 0:
             self.glow2 = 0
+
+
+class LevelBar:
+    def __init__(self):
+        '''
+        Level bar at the bottom of the screen.
+        '''
+        self.bar: int = 0 # current amount of kills
+        self.bar_smooth: float = 0 # smoothed bar value
+        self.level: int = 0
+
+        self.tint: float = 0.0
+        self.flash1: float = 0.0
+        self.flash2: float = 0.0
+        self.glow: float = 0.0
+        self.rect: pg.Rect = pg.Rect(halfx-75,windowy-15,150,7) # bar rect
+
+    def count(self):
+        '''
+        Adds one kill to the counter.
+        '''
+        self.bar += 1
+
+        self.glow = 1.0
+        self.tint = 1.0
+
+    def set_level(self, amount:int):
+        '''
+        Sets a new level and resets the value.
+        '''
+        self.bar_max = amount
+        self.bar = 0
+        self.level += 1
+
+        self.flash1 = 1.0
+        self.flash2 = 1.0
+        self.glow = 1.0
+        self.tint = 1.0
+
+    def draw(self):
+        '''
+        Draws the level bar.
+        '''
+        # bar bg
+        pg.draw.rect(screen, (30,30,30), self.rect, 0, 2)
+        
+        # bar
+        bar_rect = pg.Rect((self.rect.left+1, self.rect.top+1),(148*(self.bar_smooth/self.bar_max),5))
+        color = (
+            70+self.tint*130,
+            150+self.tint*80,
+            190+self.tint*50
+        )
+        pg.draw.rect(screen, color, bar_rect, 0, 2)
+
+        # bar glow effect
+        if self.glow > 0:
+            draw.image(
+                'glow.png', (bar_rect.right, bar_rect.centery),
+                (20,20), h=0.5, v=0.5, opacity=int(self.glow*255)
+            )
+            draw.image(
+                'glow.png', (bar_rect.right, bar_rect.centery),
+                (6,12), h=0.5, v=0.5, opacity=int(self.tint*255)
+            )
+            draw.image(
+                'glow.png', (bar_rect.right, bar_rect.centery),
+                (40,4), h=0.5, v=0.5, opacity=int(self.glow*255)
+            )
+
+        # text on the bar
+        draw.text(
+            save.locale.f('level_bar', [str(self.level)]),
+            (self.rect.left+6, self.rect.centery+1),
+            (255,255,255), shadows = [(0,1),(1,0),(1,1)],
+            v=0.5
+        )
+        draw.text(
+            f'{self.bar} / {self.bar_max}',
+            (self.rect.right-5, self.rect.centery+1),
+            (200,200,200), shadows = [(0,1),(1,0),(1,1)],
+            h=1, v=0.5
+        )
+
+        # flash effect
+        if self.flash2 > 0:
+            draw.image(
+                'glow.png', self.rect.center,
+                (170,30), h=0.5, v=0.5, opacity=int(self.flash1*255)
+            )
+            draw.image(
+                'glow.png', self.rect.center,
+                (250,10), h=0.5, v=0.5, opacity=int(self.flash2*255)
+            )
+
+
+    def update(self):
+        '''
+        Updates the level bar.
+        '''
+        # smooth values
+        if round(self.bar_smooth, 2) != self.bar:
+            self.bar_smooth = lerp(self.bar_smooth, self.bar, td*7)
+        elif self.bar_smooth != self.bar:
+            self.bar_smooth = self.bar
+
+        # tint
+        if self.tint > 0:
+            self.tint -= td*2.5
+            if self.tint < 0:
+                self.tint = 0
+
+        # glow
+        if round(self.glow, 1) != 0:
+            self.glow = lerp(self.glow, 0, td*4)
+        elif self.glow != 0: self.glow = 0
+
+        # flash
+        if round(self.flash1, 2) != 0:
+            self.flash1 = lerp(self.flash1, 0, td*4)
+        elif self.flash1 != 0: self.flash1 = 0
+
+        if round(self.flash2, 2) != 0:
+            self.flash2 = lerp(self.flash2, 0, td)
+        elif self.flash2 != 0: self.flash2 = 0
+
+
+class BadgeStamp(Effect):
+    def __init__(self, image:str, pos:Tuple[int,int]):
+        super().__init__()
+        self.image: str = image
+        self.position: Tuple[int,int] = pos
+        self.key: float = 1.0
+        self.smooth_key: float = 1.0
+
+    def draw(self):
+        '''
+        Draws the badge stamp.
+        '''
+        size = 24+48*self.smooth_key
+        draw.image(
+            self.image, self.position, (size,size), smooth=False,
+            h=0.5, v=0.5, opacity=int(255-self.key*255)
+        )
+
+    def update(self):
+        '''
+        Updates the badge stamp.
+        '''
+        self.key -= td*1.5
+        self.smooth_key = easing.QuarticEaseOut(0,1,1).ease(self.key)
+
+        if self.key <= 0:
+            self.deletable = True
+
+
+class Badge:
+    def __init__(self, image:str, inactive_image:str, pos:int):
+        '''
+        Counts as an element in the `BadgeDisplay` class.
+        '''
+        self.image: str = image
+        self.inactive_image: str = inactive_image
+        self.position: Tuple[int,int] = [
+            20+pos*30,
+            windowy-20
+        ]
+        self.amount: int = 0 # current amount of badges
+        self.display_amount: int = 0 # amount of badges to display
+
+        self.stamp_anims: List[BadgeStamp] = [] # stamp animations
+        self.shake: float = 0.0 # shake intensity
+        self.amount_flash: float = 0.0 # glow effect on the amount of badges
+        self.glow: float = 0.0 # glow effect on the badge
+
+    def withdraw(self):
+        '''
+        Removes one badge from the display.
+        '''
+        self.amount_flash = 1.0
+        self.glow = 1.0
+        self.shake = 1.0
+        self.amount -= 1
+        self.display_amount -= 1
+
+    def add(self):
+        '''
+        Adds one badge to the display.
+        '''
+        self.amount += 1
+        self.stamp_anims.append(BadgeStamp(self.image, self.position))
+
+    def draw(self):
+        '''
+        Draws the badge.
+        '''
+        # draws the image
+        image = self.inactive_image if self.display_amount == 0 else self.image
+        position = [
+            self.position[0]+random.randint(-round(self.shake*3), round(self.shake*3)),
+            self.position[1]+random.randint(-round(self.shake*3), round(self.shake*3)),
+        ]
+        draw.image(
+            image, position, (24,24),
+            h=0.5, v=0.5
+        )
+
+        # draws the counter
+        draw.text(
+            str(self.display_amount), (self.position[0]+12,self.position[1]+12),
+            (255,255,255), shadows = [(0,1)], h=1, v=1
+        )
+        # draws the glow
+        if self.shake > 0:
+            draw.image(
+                'glow.png', (self.position[0]+10,self.position[1]+8),
+                (17,17), h=0.5, v=0.5, opacity=int(self.shake*255)
+            )
+            draw.image(
+                'glow.png', self.position, (32,32),
+                h=0.5, v=0.5, opacity=int(self.shake*255)
+            )
+        if self.glow > 0:
+            key = easing.ExponentialEaseOut(0,1,1).ease(1-self.shake)
+            draw.image(
+                'glow.png', self.position, (48*key,6*key),
+                h=0.5, v=0.5, opacity=int(self.glow*255)
+            )
+            draw.image(
+                'glow.png', self.position, (6*key,64*key),
+                h=0.5, v=0.5, opacity=int(self.glow*255)
+            )
+
+        # draws the stamp anims
+        for i in self.stamp_anims:
+            i.draw()
+
+
+    def update(self):
+        '''
+        Updates the badge.
+        '''
+        # flashing
+        if self.amount_flash:
+            self.amount_flash -= td*3
+            if self.amount_flash < 0:
+                self.amount_flash = 0
+
+        # shaking
+        if self.shake:
+            self.shake -= td
+            if self.shake < 0:
+                self.shake = 0
+
+        # long glow bar
+        if round(self.glow, 2) != 0:
+            self.glow = lerp(self.glow, 0.0, td*2)
+        else:
+            self.glow = 0.0
+        
+        # updating stamps
+        new = []
+        for i in self.stamp_anims:
+            i.update()
+            if not i.deletable:
+                new.append(i)
+            else:
+                # adding badges
+                self.amount_flash = 1.0
+                self.display_amount += 1
+                self.shake = 1.0
+                self.glow = 1.0
+
+        self.stamp_anims = new
+
+
+class BadgeDisplay:
+    def __init__(self):
+        '''
+        Badge display at the bottom of the screen.
+        '''
+        self.badges: Dict[str, Badge] = {
+            "health":  Badge('badges/health.png', 'badges/inactive_health.png', 0),
+            "stamina": Badge('badges/stamina.png', 'badges/inactive_stamina.png', 1),
+            "damage":  Badge('badges/damage.png', 'badges/inactive_damage.png', 2),
+            "revive":  Badge('badges/revive.png', 'badges/inactive_revive.png', 3),
+        } # dict of all badges
+
+    def add_badge(self, badge:str):
+        '''
+        Adds an badge to the display.
+        '''
+        self.badges[badge].add()
+
+    def draw(self):
+        '''
+        Draws the badge.
+        '''
+        for badge in self.badges.values():
+            badge.draw()
+
+    def update(self):
+        '''
+        Updates the badge.
+        '''
+        for badge in self.badges.values():
+            badge.update()
             
 
 class Dungeon:
@@ -1521,6 +1992,14 @@ class Dungeon:
         self.player_health: int = self.player.health # current player health
         self.update_player_rect()
 
+        # badges
+        self.health_badges: int = 0 # amout of health badges
+        self.damage_badges: int = 0 # amount of damage badges
+        self.stamina_badges: int = 0 # amount of stamina badges
+        self.revive_badges: int = 0 # amount of revives left
+        self.badge_display: BadgeDisplay = BadgeDisplay() # status display for badges
+        self.last_badge: str = None # last badge that was gotten
+
         # stamina
         self.available_stamina: float = self.player.stamina # stamina
         self.stamina_restore_timer: float = 0.0 # how much time is left before the stamina gets restored
@@ -1533,6 +2012,7 @@ class Dungeon:
 
         # enemies
         self.enemies: List[Enemy] = [] # guess what
+        self.boss_level: int = 1 # boss hp multiplier
 
         # effects
         self.effects: List[Effect] = [] # list of effects
@@ -1559,6 +2039,7 @@ class Dungeon:
         self.spawn_timer: float = 0 # time before spawning the next enemy
         self.queue_manager: QueueManager = QueueManager(wave) # manages what enemies to spawn
         self.spawn_max: int = random.randint(*wave.limit_start) # max amount of enemies on field
+        self.boss_wave: bool = False # whether the boss wave is active
 
         # ui
         self.health_bar: HPDisplay = HPDisplay(self.player.health) # health bar
@@ -1571,13 +2052,20 @@ class Dungeon:
         self.score: int = 0 # player score
         self.level: int = 1 # current player money multiplier
         self.kills: int = 0 # amount of enemies player killed
-        self.kills_to_next_level: int = 5 # how much kills left to reach the next level
+        self.kills_to_next_level: int = self.wave.level_up_kills # how much kills left to reach the next level
+        self.level_bar: LevelBar = LevelBar() # level bar
+        self.level_bar.set_level(self.wave.level_up_kills)
 
         # other
         self.paused: bool = False # whether to show the pause menu
         self.playing: bool = True # whether to run the game
         self.dead: bool = False # whether the player is dead
 
+
+    @property
+    def damage_multiplier(self) -> float:
+        '''Returns the damage multiplier.'''
+        return 1+(self.damage_badges*self.wave.badges.damage)
 
     def draw_debug(self):
         '''
@@ -1675,6 +2163,22 @@ class Dungeon:
         self.shakiness += 1
         self.wave_bar.count(1)
 
+        # boss killed
+        if self.boss_wave:
+            self.boss_level += 1
+            self.receive_random_badge()
+
+        # level
+        self.kills += 1
+        self.kills_to_next_level -= 1
+        self.level_bar.count()
+
+        # level up
+        if self.kills_to_next_level <= 0:
+            self.kills_to_next_level = self.wave.level_up_kills+self.level_bar.bar_max
+            self.level += 1
+            self.level_bar.set_level(self.kills_to_next_level)
+
     def pause(self):
         '''
         Pauses or unpauses the game.
@@ -1692,6 +2196,38 @@ class Dungeon:
         self.dead = True
         self.playing = False
         self.paused = False
+
+    def receive_random_badge(self) -> str:
+        '''
+        Gives player a random badge and returns its
+        name - `health`, `stamina`, `damage` or `revive`.
+        '''
+        # choosing badge
+        badge = random.choice(['health','stamina','damage','revive'])
+        while badge == self.last_badge:
+            badge = random.choice(['health','stamina','damage','revive'])
+        self.last_badge = badge
+
+        # health badge
+        if badge == 'health':
+            self.player.health += self.wave.badges.health
+            self.player_health += self.wave.badges.health
+            self.health_badges += 1
+            self.health_bar.set_max(self.wave.badges.health)
+        # stamina badge
+        elif badge == 'stamina':
+            self.player.stamina += self.wave.badges.stamina
+            self.stamina_badges += 1
+            self.stamina_bar.max += self.wave.badges.stamina
+        # damage badge
+        elif badge == 'damage':
+            self.damage_badges += 1
+        # damage badge
+        elif badge == 'revive':
+            self.revive_badges += 1
+
+        self.badge_display.add_badge(badge)
+        return badge
     
     def draw_ui(self):
         '''
@@ -1715,14 +2251,15 @@ class Dungeon:
         self.score_counter.draw()
         # balance counter
         self.balance_counter.draw()
+        # level bar
+        self.level_bar.draw()
+        # badge display
+        self.badge_display.draw()
+
         # current weapon
         draw.image(
             self.weapon.image, (windowx-10, windowy-10),
             self.weapon.size, h=1, v=1
-        )
-        draw.text(
-            self.weapon.name, (windowx-17-self.weapon.size[0],windowy-10),
-            h=1, v=1, shadows=[(0,-1)]
         )
 
     def draw_player(self):
@@ -1820,7 +2357,16 @@ class Dungeon:
 
         # killing player
         if self.player_health <= 0:
-            self.kill()
+            # using revive badge
+            if self.revive_badges > 0:
+                self.revive_badges -= 1
+                self.badge_display.badges['revive'].withdraw()
+                # healing player
+                self.health_bar.heal()
+                self.player_health = self.player.health
+            # killing player
+            else:
+                self.kill()
 
 
     def update_wave(self):
@@ -1838,15 +2384,19 @@ class Dungeon:
                 self.queue_manager.step()
                 # boss wave
                 if self.waves_before_boss <= 0:
+                    self.boss_wave = True
                     self.waves_before_boss = self.wave.boss_every
-                    self.enemy_queue = [self.wave.random_boss()]
+                    boss = self.wave.random_boss()
+                    boss.health *= self.boss_level
+                    self.enemy_queue = [boss]
                 # normal wave
                 else:
+                    self.boss_wave = False
                     self.enemy_queue = self.queue_manager.gen_queue()
 
                 self.wave_bar.set_max(len(self.enemy_queue))
-                self.wave_bar.bar_str = 'Enemies remaining'
-                self.wave_bar.top_str = f'Wave {self.wave_number}'
+                self.wave_bar.bar_str = save.locale.f('enemies_remaining')
+                self.wave_bar.top_str = save.locale.f('wave', [self.wave_number])
 
                 self.is_intermission = False
                 self.spawn_max += random.randint(*self.wave.limit_increase)
@@ -1872,13 +2422,13 @@ class Dungeon:
                 self.wave_bar.set_max(10)
                 self.waves_before_boss -= 1
                 self.intermission_timer = 10
-                self.wave_bar.bar_str = 'Intermission'
+                self.wave_bar.bar_str = save.locale.f('intermission')
                 # boss message
                 if self.waves_before_boss <= 0:
-                    self.wave_bar.top_str = f'Wave {self.wave_number+1} - Boss incoming!'
+                    self.wave_bar.top_str = save.locale.f('upcoming_wave_boss', [self.wave_number+1])
                 # normal message
                 else:
-                    self.wave_bar.top_str = f'SPACE to skip to Wave {self.wave_number+1}'
+                    self.wave_bar.top_str = save.locale.f('upcoming_wave', [self.wave_number+1])
 
 
     def draw(self):
@@ -1927,10 +2477,17 @@ class Dungeon:
                 opacity=int(200-self.smooth_dead_key*120)
             )
             # text
+            size = (345-self.smooth_dead_key*45,115-self.smooth_dead_key*15)
             draw.image(
                 'dead.png', (halfx, halfy), opacity=int(155+self.smooth_dead_key*100),
-                size=(330-self.smooth_dead_key*60,110-self.smooth_dead_key*20), h=0.5, v=0.5
+                size=size, h=0.5, v=0.5
             )
+            # text glow
+            if self.dead_key > 0:
+                draw.image(
+                    'dead_glow.png', (halfx, halfy), opacity=int(255-self.smooth_dead_key*255),
+                    size=size, h=0.5, v=0.5
+                )
             
         # dimming screen
         if self.smooth_dim != 0:
@@ -2011,7 +2568,8 @@ class Dungeon:
                     self.projectiles.append(Projectile(
                         self.weapon.projectile,
                         [self.player_pos[0], self.player_pos[1]],
-                        self.mouse_angle+self.weapon.random_range()
+                        self.mouse_angle+self.weapon.random_range(),
+                        self.damage_multiplier
                     ))
                 self.shooting_timer += self.weapon.speed
 
@@ -2085,6 +2643,7 @@ class Dungeon:
                 while i.shoot_timeout < 0:
                     i.shoot_timeout += i.enemy.weapon_speed
                     i.glow_key = 0.3
+                    i.spin_velocity += 10
                     for j in range(i.enemy.amount):
                         self.projectiles.append(Projectile(
                             i.enemy.projectile,
@@ -2126,6 +2685,12 @@ class Dungeon:
         # balance counter
         self.balance_counter.update()
 
+        # level bar
+        self.level_bar.update()
+
+        # badge display
+        self.badge_display.update()
+
         # vignette
         if self.vignette_opacity > 1.0:
             self.vignette_opacity = 1.0
@@ -2146,7 +2711,10 @@ maps = [
         "enemy_spawns": [[1,8], [18,1], [18,8], [1,1]]
     })
 ]
+locales: List[Locale]
+refresh_locales()
 
+save = SaveData('save.json')
 
 datapacks: Dict[str, Datapack]
 datapack: Datapack

@@ -1,9 +1,8 @@
 {
     "weapons": [
         {
-            "name":       "Pistol",
             "cost":       0,
-            "image":      "3s.png",
+            "image":      "spinners/yellow.png",
             "size":       [16,12],
             "speed":      0.25,
             "range":      3,
@@ -11,7 +10,7 @@
             "recoil":     0.05,
             "shake":      0.5,
             "projectile": {
-                "image":    "3s.png",
+                "image":    "spinners/yellow.png",
                 "size":     [8,16],
                 "speed":    [15,20],
                 "slowdown": 0,
@@ -21,9 +20,8 @@
             }
         },
         {
-            "name":       "Shotgun",
             "cost":       1500,
-            "image":      "3s.png",
+            "image":      "spinners/yellow.png",
             "size":       [16,16],
             "speed":      0.7,
             "range":      15,
@@ -31,7 +29,7 @@
             "recoil":     0.15,
             "shake":      2,
             "projectile": {
-                "image":    "3s.png",
+                "image":    "spinners/yellow.png",
                 "size":     [14,14],
                 "speed":    [10,15],
                 "slowdown": 10,
@@ -44,7 +42,6 @@
     "player": {
         "speed":   7,
         "health":  400,
-        "crit":    1.25,
         "stamina": 7
     },
     "waves": [
@@ -55,6 +52,12 @@
             "limit_increase": [2,3],
             "limit_end":      25,
             "boss_every":     5,
+            "level_up_kills": 5,
+            "badges": {
+                "health": 100,
+                "stamina": 1,
+                "damage": 0.5
+            },
             "enemies": [
                 {
                     "wave_start":      [1,1],
@@ -62,7 +65,7 @@
                     "amount_end":      [9,10],
                     "amount_increase": [1,2],
                     "enemy": {
-                        "image":       "3s.png",
+                        "image":       "spinners/yellow.png",
                         "size":        [24,24],
                         "speed":       2,
                         "health":      250,
@@ -71,7 +74,7 @@
                         "range":       0,
                         "amount":      1,
                         "projectile": {
-                            "image":    "3s.png",
+                            "image":    "spinners/yellow.png",
                             "size":     [12,12],
                             "speed":    [15,20],
                             "slowdown": 10,
@@ -85,18 +88,18 @@
                     "wave_start":      [3,5],
                     "amount_start":    [1,1],
                     "amount_end":      [6,8],
-                    "amount_increase": [0,1],
+                    "amount_increase": [1,1],
                     "enemy": {
-                        "image":       "3s.png",
+                        "image":       "spinners/green.png",
                         "size":        [18,18],
                         "speed":       3,
-                        "health":      350,
+                        "health":      400,
                         "cost":        [100,200],
                         "weaponspeed": 0.5,
                         "range":       15,
                         "amount":      1,
                         "projectile": {
-                            "image":    "3s.png",
+                            "image":    "spinners/yellow.png",
                             "size":     [6,6],
                             "speed":    [20,25],
                             "slowdown": 0,
@@ -105,22 +108,72 @@
                             "damage":   [5,10]
                         }
                     }
+                },
+                {
+                    "wave_start":      [7,9],
+                    "amount_start":    [1,1],
+                    "amount_end":      [4,5],
+                    "amount_increase": [0,1],
+                    "enemy": {
+                        "image":       "spinners/red.png",
+                        "size":        [32,32],
+                        "speed":       1.5,
+                        "health":      750,
+                        "cost":        [250,400],
+                        "weaponspeed": 1.5,
+                        "range":       180,
+                        "amount":      15,
+                        "projectile": {
+                            "image":    "spinners/yellow.png",
+                            "size":     [10,10],
+                            "speed":    [5,7],
+                            "slowdown": 4,
+                            "lifetime": [0.5, 0.8],
+                            "hit":      "player",
+                            "damage":   [4,6]
+                        }
+                    }
+                },
+                {
+                    "wave_start":      [16,18],
+                    "amount_start":    [1,1],
+                    "amount_end":      [3,3],
+                    "amount_increase": [0,1],
+                    "enemy": {
+                        "image":       "spinners/white.png",
+                        "size":        [32,32],
+                        "speed":       1,
+                        "health":      1500,
+                        "cost":        [700,1000],
+                        "weaponspeed": 1.5,
+                        "range":       15,
+                        "amount":      20,
+                        "projectile": {
+                            "image":    "spinners/yellow.png",
+                            "size":     [10,10],
+                            "speed":    [5,15],
+                            "slowdown": 7,
+                            "lifetime": [0.5, 0.8],
+                            "hit":      "player",
+                            "damage":   [4,6]
+                        }
+                    }
                 }
             ],
             "bosses": [
                 {
-                    "image":       "3s.png",
+                    "image":       "spinners/yellow.png",
                     "size":        [64,64],
                     "speed":       1,
                     "health":      1500,
                     "cost":        [900,1000],
                     "weaponspeed": 1,
                     "range":       30,
-                    "amount":      10,
+                    "amount":      15,
                     "projectile": {
-                        "image":    "3s.png",
+                        "image":    "spinners/yellow.png",
                         "size":     [16,16],
-                        "speed":    [5,7],
+                        "speed":    [7,10],
                         "slowdown": 0,
                         "lifetime": [0.7, 1.0],
                         "hit":      "player",
@@ -128,16 +181,16 @@
                     }
                 },
                 {
-                    "image":       "3s.png",
+                    "image":       "spinners/yellow.png",
                     "size":        [64,64],
                     "speed":       1,
                     "health":      2000,
                     "cost":        [1200,1400],
-                    "weaponspeed": 0.25,
+                    "weaponspeed": 0.2,
                     "range":       0,
                     "amount":      1,
                     "projectile": {
-                        "image":    "3s.png",
+                        "image":    "spinners/yellow.png",
                         "size":     [18,18],
                         "speed":    [5,7],
                         "slowdown": 0,
@@ -147,18 +200,18 @@
                     }
                 },
                 {
-                    "image":       "3s.png",
+                    "image":       "spinners/yellow.png",
                     "size":        [80,80],
                     "speed":       2,
                     "health":      2500,
                     "cost":        [1800,2000],
                     "weaponspeed": 2,
                     "range":       180,
-                    "amount":      30,
+                    "amount":      35,
                     "projectile": {
-                        "image":    "3s.png",
+                        "image":    "spinners/yellow.png",
                         "size":     [16,16],
-                        "speed":    [5,8],
+                        "speed":    [7,10],
                         "slowdown": 4,
                         "lifetime": [1,1.3],
                         "hit":      "player",
@@ -166,7 +219,7 @@
                     }
                 },
                 {
-                    "image":       "3s.png",
+                    "image":       "spinners/yellow.png",
                     "size":        [48,48],
                     "speed":       3,
                     "health":      2500,
@@ -175,7 +228,7 @@
                     "range":       5,
                     "amount":      2,
                     "projectile": {
-                        "image":    "3s.png",
+                        "image":    "spinners/yellow.png",
                         "size":     [12,12],
                         "speed":    [14,18],
                         "slowdown": 8,
