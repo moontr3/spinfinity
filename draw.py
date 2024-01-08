@@ -88,13 +88,14 @@ class ImageType:
             return self.find(size, smooth, fliph, flipv)
 
 class ImageGroup:
-    def __init__(self, image_folder:str):
+    def __init__(self, image_folder:str, unknown_image_path:str):
         '''
         A class that manages all images inside a
         folder and all folders inside the parent
         folder recursively.
         '''
         self.image_folder: str = image_folder
+        self.unknown_image_path: str = unknown_image_path
         self.images: Dict[str, ImageType] = {}
 
     def init_image(self, image:str, image_path:str):
@@ -114,14 +115,17 @@ class ImageGroup:
         if image in self.images:
             return self.images[image].find(size, smooth, fliph, flipv)
         else:
-            self.init_image(image, self.image_folder+image)
-            return self.find(image, size, smooth, fliph, flipv)
+            try:
+                self.init_image(image, self.image_folder+image)
+                return self.find(image, size, smooth, fliph, flipv)
+            except:
+                return self.find(self.unknown_image_path, size, smooth, fliph, flipv)
 
 # INITIALIZING OBJECTS
 pg.font.init()
 
 fonts = FontGroup("res/fonts/")
-images = ImageGroup("res/images/")
+images = ImageGroup("res/images/", "unknown.png")
 
 def_surface = None # default surface for drawing
                    # stuff. made this to not put the
@@ -215,6 +219,8 @@ def image(
     '''
     Draws an image on the specified surface.
     '''
+    # size
+    size = [max(1,size[0]), max(1,size[1])]
 
     # surface
     if surface == None:

@@ -1,10 +1,13 @@
 {
-    "name": "Russian",
+    "name": "Русский",
     "level_bar": "Уровень {}",
     "intermission": "Перерыв",
     "upcoming_wave": "ПРОБЕЛ - пропуск на {} волну",
     "upcoming_wave_boss": "ПРОБЕЛ - пропуск на {} босс-волну",
     "wave": "Волна {}",
     "enemies_remaining": "Осталось противников",
-    "get_ready": "Приготовьтесь!"
+    "get_ready": "Приготовьтесь!",
+    "currency": "$",
+    "owned": "Получено",
+    "selected": "Выбрано"
 }

@@ -61,6 +61,9 @@ halfy = windowy//2 # half of the Y window size
 
 TILE_SIZE = 32
 
+SHOP_OPEN_KEY = pg.K_e
+BACK_KEY = pg.K_ESCAPE
+
 
 # app functions 
 
@@ -431,7 +434,7 @@ class Projectile:
             self.projectile.image,
             position,
             self.projectile.size,
-            rotation=self.degrees_angle,
+            rotation=self.degrees_angle+90,
             h=0.5, v=0.5
         )
 
@@ -452,6 +455,7 @@ class WeaponData:
         '''
         Initial weapon data.
         '''
+        self.cost: int = data['cost'] # cost of the weapon
         self.image: str = data['image'] # weapon image
         self.size: Tuple[int,int] = data['size'] # weapon image size in pixels
         self.speed: float = data['speed'] # what time has to pass between two shots in seconds
@@ -576,6 +580,7 @@ class WaveData:
         self.limit_end: int = data['limit_end'] # maximum amount of enemies on field
         self.boss_every: int = data['boss_every']
         self.level_up_kills: int = data['level_up_kills']
+        self.boss_level_hp: float = data['boss_level_hp'] # how much health increases on all bosses
         self.badges: BadgeData = BadgeData(data['badges']) # badges data
         self.enemies: List[WaveEnemy] =\
             [WaveEnemy(i) for i in data['enemies']] # list of modifiable enemies that can spawn
@@ -839,7 +844,7 @@ class KillIndicator(Effect):
                 self.smooth_key = 1
 
             self.smooth = int(self.amount*self.smooth_key)
-            self.string = '+'+shorten(self.smooth)+'$'
+            self.string = '+'+save.locale.f('currency')+shorten(self.smooth)
 
     def draw(self, position:Tuple[int,int]):
         '''
@@ -950,7 +955,7 @@ class SpawnEffect(Effect):
 
 
 class Enemy:
-    def __init__(self, enemy:EnemyData, position:Tuple[int,int]):
+    def __init__(self, enemy:EnemyData, position:Tuple[int,int], map_size:Tuple[int,int]):
         '''
         An enemy.
         '''
@@ -974,6 +979,9 @@ class Enemy:
 
         self.spin_degree: float = 0.0 # spin degree
         self.spin_velocity: float = 50.0 # spin velocity
+
+        self.map_size: Tuple[int,int] = map_size # map size
+        self.halfsize: Tuple[int,int] = (self.size[0]/2, self.size[1]/2) # half enemy size
 
     def hit(self, damage:int):
         '''
@@ -1056,7 +1064,7 @@ class Enemy:
                     position,
                     self.enemy.size,
                     h=0.5, v=0.5, 
-                    blending=pg.BLEND_RGBA_ADD,
+                    blending=pg.BLEND_ADD,
                     rotation=self.spin_degree 
                 ) # blending doesn't support opacity so my solution
                   # is drawing the same image over and over again
@@ -1082,6 +1090,9 @@ class Enemy:
         if self.stun <= 0:
             self.position[0] += np.cos(self.direction_angle)*self.enemy.speed*td
             self.position[1] += np.sin(self.direction_angle)*self.enemy.speed*td
+            # keeping the enemies inside the boundaries
+            self.position[0] = max(self.halfsize[0], min(self.position[0], self.map_size[0]-self.halfsize[0]))
+            self.position[1] = max(self.halfsize[1], min(self.position[1], self.map_size[1]-self.halfsize[1]))
         else:
             self.stun -= td
 
@@ -1627,7 +1638,7 @@ class BalanceCounter:
             )
         # dollar sign
         draw.text(
-            '$', (windowx-7-max(7,len(string))*7-offset,27),
+            save.locale.f('currency'), (windowx-7-max(7,len(string))*7-offset,27),
             style='big', size=11, h=1, color=(170,255,130),
             shadows=[(0,-2)]
         )
@@ -1969,6 +1980,266 @@ class BadgeDisplay:
         '''
         for badge in self.badges.values():
             badge.update()
+
+
+class ShopElement:
+    def __init__(self, weapon:WeaponData, pos:int):
+        '''
+        In-game shop element.
+        '''
+        self.weapon: WeaponData = weapon # weapon data
+        self.initial_pos: int = pos # initial position
+        self.offset: float = 0.0 # scroll offset
+        self.hover_key: float = 0.0 # hover animation key
+        self.size: Tuple[int,int] = [weapon.size[0]*2.5, weapon.size[1]*2.5] # weapon image size
+        self.hover_size: Tuple[int,int] = [weapon.size[0]*3, weapon.size[1]*3] # weapon hovered size
+        self.update_rect()
+
+        self.owned: bool = False # whether the weapon is owned by the player
+        self.selected: bool = False # whether the weapon is currently selected
+
+        self.shake: bool = 0.0 # "not enough money" shake intensity
+        self.glow1: float = 0.0 # glow effect on the weapon
+        self.glow2: float = 0.0 # glow effect on the weapon
+
+    def draw(self):
+        '''
+        Draws the weapon at a current position.
+        '''
+        # shaking
+        shake_offset = (random.random()-0.5)*self.shake*2
+        # price
+        if self.hover_key > 0.0:
+            pos = (
+                self.rect.centerx+self.hover_key*(self.size[0]/2+15)-shake_offset,
+                self.rect.centery
+            )
+            if self.owned:
+                draw.text(
+                    save.locale.f('owned') if not self.selected else save.locale.f('selected'),
+                    pos, h=0.5-(self.hover_key*0.5), v=0.5,
+                    size=11, style='big', opacity=int(self.hover_key*128),
+                )
+            else:
+                draw.text(
+                    save.locale.f('currency')+str(self.weapon.cost), pos,
+                    shadows=[(0,1)], h=0.5-(self.hover_key*0.5), v=0.5,
+                    size=11, style='big', opacity=int(self.hover_key*255),
+                    color=[255]+[255-(self.shake/5*200)]*2
+                )
+
+        # image
+        size = [
+            lerp(self.size[0], self.hover_size[0], self.hover_key),
+            lerp(self.size[1], self.hover_size[1], self.hover_key)
+        ]
+        draw.image(
+            self.weapon.image, [self.rect.centerx-shake_offset, self.rect.centery],
+            size, h=0.5, v=0.5, opacity=int(90+int(self.owned)*185)
+        )
+        
+        # selection glow
+        if self.selected:
+            draw.image(
+                self.weapon.image, self.rect.center, size,
+                h=0.5, v=0.5, blending=pg.BLEND_ADD,
+            )
+
+        # purchase glow
+        if self.glow1 > 0:
+            draw.image(
+                'glow.png', self.rect.center, [size[0]+20,size[1]+20],
+                h=0.5, v=0.5, opacity=int(self.glow1*255),
+            )
+        if self.glow2 > 0:
+            draw.image(
+                'glow.png', self.rect.center, [size[0]*2, 18],
+                h=0.5, v=0.5, opacity=int(min(self.glow2, self.glow1)*255),
+            )
+            draw.image(
+                'glow.png', self.rect.center, [size[0]*3, 6],
+                h=0.5, v=0.5, opacity=int(self.glow2*255),
+            )
+        
+        # the debug rect
+        if debug_opened:
+            pg.draw.rect(screen, (255,255,0), self.rect, 1)
+        
+    def update_rect(self, scroll_offset:float=0, key:float=1.0):
+        '''
+        Updates rect according to scroll offset.
+        '''
+        self.rect: pg.Rect = pg.Rect(
+            (0,(self.initial_pos+scroll_offset)*key - (self.size[1])*(1-key)),  
+            self.size
+        )
+        self.rect.centerx = halfx
+        self.offset = scroll_offset
+
+    def update(self):
+        '''
+        Updates the object.
+        '''
+        # mouse hover
+        self.hovered = self.rect.collidepoint(mouse_pos)
+
+        # hover animation
+        if round(self.hover_key, 3) == int(self.hovered):
+            self.hover_key = int(self.hovered)
+        else:
+            self.hover_key = lerp(self.hover_key, int(self.hovered), td*10)
+
+        # shake animation
+        if round(self.shake, 1) == 0:
+            self.shake = 0
+        else:
+            self.shake = lerp(self.shake, 0, td*10)
+
+        # big glow
+        if self.glow1 > 0:
+            self.glow1 -= td*1
+            if self.glow1 < 0:
+                self.glow1 = 0
+        
+        # small glow
+        if round(self.glow2, 2) == 0:
+            self.glow2 = 0
+        else:
+            self.glow2 = lerp(self.glow2, 0, td*2)
+
+
+class Shop:
+    def __init__(self, weapons:List[WeaponData]):
+        '''
+        In-game shop.
+        '''
+        self.unlocked_indexes: List[int] = [] # indexes of unlocked weapons
+        self.weapons: List[WeaponData] = weapons # list of weapons
+        self.selected_index: int = 0 # index of currently selected weapon
+        self.balance: int = 0 # current player balance
+
+        self.elements: List[ShopElement] = [] # list of shop elements
+        pos = 20
+        for i in weapons:
+            self.elements.append(ShopElement(i, pos))
+            pos += int(i.size[1]*2.5+20)
+        self.scroll_limit: int = max(0, (pos+weapons[-1].size[1])-windowy)
+
+        self.shop_opened: bool = False # is the shop opened
+        self.open_key: float = 0.0 # open animation
+
+        self.scroll_offset: float = 0 # scroll offset
+        self.scroll_vel: float = 0.0 # scroll velocity
+
+        self.unlock(0)
+        self.select(0)
+
+    @property
+    def weapon(self) -> WeaponData:
+        '''Returns the currently selected weapon.'''
+        return self.weapons[self.selected_index]
+        
+    def select(self, index:int):
+        '''Selects a weapon.'''
+        self.selected_index = index
+        for i in self.elements:
+            i.selected = False
+        self.elements[index].selected = True
+        self.elements[index].glow1 = 0.2
+
+    def unlock(self, index:int):
+        '''Unlocks a weapon.'''
+        self.unlocked_indexes.append(index)
+        self.elements[index].owned = True
+        self.elements[index].glow1 = 1.0
+        self.elements[index].glow2 = 1.0
+
+    def update_rect(self):
+        '''Updates shop background rect.'''
+        self.rect: pg.Rect = pg.Rect((0,0), (self.open_key*50, windowy))
+        self.rect.centerx = halfx
+
+    def update_items_rect(self):
+        '''Updates rects of all weapons.'''
+        for i in self.elements:
+            i.update_rect(-self.scroll_offset, self.open_key)
+
+    def draw_menu(self):
+        '''
+        Draws the shop menu.
+        '''
+        # bg
+        color = [50+150*(1-self.open_key)]*3
+        pg.draw.rect(screen, (color), self.rect)
+
+        # weapons
+        for i in self.elements:
+            i.draw()
+
+    def update_menu(self):
+        '''
+        Updates the shop menu.
+        '''
+        # elements
+        is_clicked = False
+        for index, i in enumerate(self.elements):
+            i.update()
+            # clicking
+            if lmb_down and not is_clicked and i.hovered:
+                is_clicked = True
+                # if weapon is not unlocked
+                if index not in self.unlocked_indexes:
+                    # buying
+                    if self.balance >= i.weapon.cost:
+                        self.balance -= i.weapon.cost
+                        self.unlock(index)
+                        self.select(index)
+                    # not enough money
+                    else:
+                        i.shake = 5.0
+                # if weapon is unlocked
+                else:
+                    # selecting
+                    self.select(index)
+
+    def draw(self):
+        '''
+        Draws the display.
+        '''
+        if self.open_key > 0.0:
+            self.draw_menu()
+
+    def update(self):
+        '''
+        Updates the display.
+        '''
+        # open animation
+        if round(self.open_key, 3) == int(self.shop_opened):
+            if self.open_key != int(self.shop_opened):
+                self.update_rect()
+                self.update_items_rect()
+
+            self.open_key = int(self.shop_opened)
+        else:
+            self.open_key = lerp(self.open_key, int(self.shop_opened), td*10)
+            self.update_rect()
+            self.update_items_rect()
+
+        # menu
+        if self.shop_opened:
+            self.update_menu()
+
+        # scroll
+        if mouse_wheel != 0.0 and self.shop_opened:
+            self.scroll_vel -= mouse_wheel*5
+
+        if self.scroll_vel != 0:
+            self.scroll_offset = max(0, min(self.scroll_limit, self.scroll_offset))
+            self.scroll_offset += self.scroll_vel
+            
+            self.scroll_vel = lerp(self.scroll_vel, 0, td*15)
+
+            self.update_items_rect()
             
 
 class Dungeon:
@@ -2007,7 +2278,7 @@ class Dungeon:
 
         # projectiles and weapons
         self.projectiles: List[Projectile] = [] # guess what
-        self.weapon: WeaponData = datapack.weapons[0] # current weapon player has
+        self.shop: Shop = Shop(datapack.weapons) # shop and weapon storage
         self.shooting_timer: float = 0.0 # how much time is left before a player can shoot
 
         # enemies
@@ -2048,7 +2319,6 @@ class Dungeon:
         self.balance_counter: BalanceCounter = BalanceCounter() # balance counter
 
         # stats
-        self.balance: int = 0 # player balance
         self.score: int = 0 # player score
         self.level: int = 1 # current player money multiplier
         self.kills: int = 0 # amount of enemies player killed
@@ -2061,6 +2331,15 @@ class Dungeon:
         self.playing: bool = True # whether to run the game
         self.dead: bool = False # whether the player is dead
 
+    @property
+    def balance(self):
+        '''Returns player balance.'''
+        return self.shop.balance
+
+    @property
+    def weapon(self):
+        '''Returns the currently selected weapon.'''
+        return self.shop.weapon
 
     @property
     def damage_multiplier(self) -> float:
@@ -2115,7 +2394,7 @@ class Dungeon:
         '''
         Adds money to player's balance.
         '''
-        self.balance += amount
+        self.shop.balance += amount
         self.balance_counter.add(amount)
 
     def add_score(self, amount:int):
@@ -2183,10 +2462,20 @@ class Dungeon:
         '''
         Pauses or unpauses the game.
         '''
-        if self.dead:
+        if self.dead or self.shop.shop_opened:
             return
         self.paused = not self.paused
         self.dim = int(self.paused)*0.5
+        self.playing = not self.playing
+
+    def open_shop(self):
+        '''
+        Opens or closes the shop.
+        '''
+        if self.dead or self.paused:
+            return
+        self.shop.shop_opened = not self.shop.shop_opened
+        self.dim = int(self.shop.shop_opened)*0.5
         self.playing = not self.playing
 
     def kill(self):
@@ -2249,18 +2538,42 @@ class Dungeon:
         self.stamina_bar.draw(self.global_player_pos)
         # score counter
         self.score_counter.draw()
-        # balance counter
-        self.balance_counter.draw()
         # level bar
         self.level_bar.draw()
         # badge display
         self.badge_display.draw()
+        # balance counter
+        if self.shop.open_key == 0:
+            self.balance_counter.draw()
 
         # current weapon
         draw.image(
             self.weapon.image, (windowx-10, windowy-10),
             self.weapon.size, h=1, v=1
         )
+
+    def update_ui(self):
+        '''
+        Updates the HUD and the UI.
+        '''
+        # stamina bar
+        self.stamina_bar.update()
+        # health bar
+        self.health_bar.update()
+        # score counter
+        self.score_counter.update()
+        # level bar
+        self.level_bar.update()
+        # badge display
+        self.badge_display.update()
+
+        # vignette
+        if self.vignette_opacity > 1.0:
+            self.vignette_opacity = 1.0
+        if self.vignette_opacity > 0:
+            self.vignette_opacity -= td*2
+            if self.vignette_opacity < 0:
+                self.vignette_opacity = 0
 
     def draw_player(self):
         '''
@@ -2287,11 +2600,9 @@ class Dungeon:
 
         # weapon
         draw.image(
-            self.weapon.image,
-            self.global_player_pos,
-            self.weapon.size,
-            h=0.5, v=0.5,
-            rotation=self.mouse_degrees_angle,
+            self.weapon.image, self.global_player_pos,
+            self.weapon.size, h=0.5, v=0.5,
+            rotation=(self.mouse_degrees_angle+90),
             flipv=self.mouse_degrees_angle<180
         )
 
@@ -2387,7 +2698,7 @@ class Dungeon:
                     self.boss_wave = True
                     self.waves_before_boss = self.wave.boss_every
                     boss = self.wave.random_boss()
-                    boss.health *= self.boss_level
+                    boss.health = int(boss.health*(1+((self.boss_level-1)*self.wave.boss_level_hp)))
                     self.enemy_queue = [boss]
                 # normal wave
                 else:
@@ -2412,7 +2723,7 @@ class Dungeon:
             if len(self.enemy_queue) > 0 and self.spawn_timer <= 0 and len(self.enemies) < self.spawn_max:
                 self.spawn_timer = random.randint(*self.wave.spawn_delay)
                 position = self.get_spawn_location()
-                self.enemies.append(Enemy(self.enemy_queue[0], position))
+                self.enemies.append(Enemy(self.enemy_queue[0], position, self.map.size))
                 self.effects.append(SpawnEffect(position))
                 self.enemy_queue.pop(0)
 
@@ -2496,6 +2807,12 @@ class Dungeon:
                 opacity=int(self.smooth_dim*255)
             )
 
+        # shop
+        self.shop.draw()
+        # balance counter
+        if self.shop.open_key > 0:
+            self.balance_counter.draw()
+
         # some debug info
         if debug_opened:
             self.draw_debug()
@@ -2527,9 +2844,23 @@ class Dungeon:
                 if self.dead_key > 1.0:
                     self.dead_key = 1.0
 
-        # pausing and pause menu
-        if pg.K_ESCAPE in keysdown:
-            self.pause()
+        # pausing and menus
+        if BACK_KEY in keysdown:
+            # open_shop() and pause() work in reverse too
+            if self.shop.shop_opened:
+                self.open_shop()
+            else:
+                self.pause()
+
+        if SHOP_OPEN_KEY in keysdown:
+            self.open_shop()
+            
+        # shop
+        self.shop.update()
+        # balance counter
+        self.balance_counter.update()
+        if self.balance_counter.balance != self.balance:
+            self.balance_counter.balance = self.balance
         
         if not self.playing:
             return
@@ -2583,9 +2914,6 @@ class Dungeon:
 
         # updating player
         self.update_player()
-
-        # updating stamina
-        self.stamina_bar.update()
 
         # projectiles
         new = []
@@ -2643,7 +2971,7 @@ class Dungeon:
                 while i.shoot_timeout < 0:
                     i.shoot_timeout += i.enemy.weapon_speed
                     i.glow_key = 0.3
-                    i.spin_velocity += 10
+                    i.spin_velocity += int(i.enemy.weapon_speed*10)
                     for j in range(i.enemy.amount):
                         self.projectiles.append(Projectile(
                             i.enemy.projectile,
@@ -2675,29 +3003,9 @@ class Dungeon:
             if not i.deletable:
                 new.append(i)
         self.effects = new
-
-        # health bar
-        self.health_bar.update()
-
-        # score counter
-        self.score_counter.update()
         
-        # balance counter
-        self.balance_counter.update()
-
-        # level bar
-        self.level_bar.update()
-
-        # badge display
-        self.badge_display.update()
-
-        # vignette
-        if self.vignette_opacity > 1.0:
-            self.vignette_opacity = 1.0
-        if self.vignette_opacity > 0:
-            self.vignette_opacity -= td*2
-            if self.vignette_opacity < 0:
-                self.vignette_opacity = 0
+        # ui
+        self.update_ui()
 
 
 
@@ -2746,9 +3054,11 @@ while running:
         (global_mouse_pos[1]-windowrect_top[1])/(sizey/windowy)
     ] # mouse pos relative to the topleft of the "screen" variable
     mouse_press = pg.mouse.get_pressed(3)
+    mouse_wheel = 0.0
     mouse_moved = pg.mouse.get_rel()
     keys = pg.key.get_pressed() # keys that are being held
     keysdown = [] # list of keys that are just pressed in the current frame
+    lmb_down = False # whether the left mouse button just got held in the current frame
 
     screen.fill((0,0,0))
 
@@ -2778,6 +3088,15 @@ while running:
             if event.key == pg.K_F3:
                 debug_opened = not debug_opened
                 fps_graph = []
+        
+        # registering mouse wheel events
+        if event.type == pg.MOUSEWHEEL:
+            mouse_wheel = event.y
+
+        # registering mouse events
+        if event.type == pg.MOUSEBUTTONDOWN:
+            if event.button == pg.BUTTON_LEFT:
+                lmb_down = True
 
     # drawing app
     app.update()

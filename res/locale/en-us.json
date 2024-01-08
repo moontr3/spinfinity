@@ -6,5 +6,8 @@
     "upcoming_wave_boss": "SPACE to skip to Boss Wave {}",
     "wave": "Wave {}",
     "enemies_remaining": "Enemies remaining",
-    "get_ready": "Get ready!"
+    "get_ready": "Get ready!",
+    "currency": "$",
+    "owned": "Owned",
+    "selected": "Selected"
 }
