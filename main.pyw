@@ -3435,12 +3435,12 @@ class Credits:
 
         # roles
         for index, i in enumerate(save.locale.f('credits_roles').split('\n')):
-            draw.text(i, (halfx-200, 110+index*20), v=0.5)
+            draw.text(i, (halfx-200, 100+index*20), v=0.5)
 
         # names
         for index, i in enumerate(save.locale.f('credits_names').split('\n')):
             draw.text(
-                i, (halfx+200, 110+index*20), (160,160,160),
+                i, (halfx+200, 100+index*20), (160,160,160),
                 size=11,style='big', h=1, v=0.5
             )
 
@@ -4104,11 +4104,16 @@ class MainMenu:
             i.draw()
         # bg dim
         draw.image('black_vignette.png', size=(windowx,windowy))
+
         # logo
         self.logo.draw()
         # buttons
         for i in self.buttons:
             i.draw()
+
+        # author
+        draw.text('https://moontr3.github.io/', (windowx-5,windowy-5), opacity=80, h=1,v=1)
+
         # dim
         if self.anim_key > 0.0:
             draw.image('black.png', size=(windowx,windowy), opacity=int(self.anim_key*255))
