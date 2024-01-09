@@ -48,9 +48,8 @@ screen = pg.Surface((windowx, windowy)) # the surface that everything gets
                                         # to fit in the window correctly and then gets
                                         # drawn to the window surface
 
-pg.mouse.set_visible(False)
 running = True
-pg.display.set_caption('game')
+pg.display.set_caption('Spinfinity')
 draw.def_surface = screen
 
 halfx = windowx//2 # half of the X window size
@@ -73,30 +72,13 @@ def load_datapack(filename:str):
     '''
     with open(filename, encoding='utf-8') as f:
         return Datapack(json.load(f))
-    
-def load_datapacks(path:str):
-    '''
-    Returns a dict of Datapack objects with
-    filenames as keys and Datapack objects
-    as values.
-    '''
-    out = dict()
-    path = path.rstrip('\\/')+'/'
-
-    for i in glob.glob(path+'*.json'):
-        i = i.replace('\\','/')
-        out[i.removeprefix(path).removesuffix('.json')] = load_datapack(i)
-
-    return out
 
 def refresh_datapacks():
     '''
     Reloads all datapacks.
     '''
-    global datapack, datapacks
-    datapacks = load_datapacks('datapacks/')
-    datapacks['Default'] = load_datapack('res/datapack.json')
-    datapack = datapacks['Default']
+    global datapack
+    datapack = load_datapack('res/datapack.json')
     
 def load_locales(path:str):
     '''
@@ -129,6 +111,12 @@ def load_locale(filename:str, code:str):
     with open(filename, encoding='utf-8') as f:
         return Locale(code, json.load(f))
 
+
+def avg(elements:List[float]) -> float:
+    '''
+    Returns average of a list of numbers.
+    '''
+    return sum(elements)/len(elements)
 
 def rad2deg(angle:float) -> float:
     '''
@@ -274,7 +262,8 @@ class Datapack:
             [WeaponData(i) for i in data['weapons']] # list of available weapons
                                                      # player will be given the first weapon
                                                      # on this list upon beginning session
-        self.waves: List[WaveData] = [WaveData(i) for i in data['waves']] # list of available difficulties
+        self.wave: WaveData = WaveData(data['wave']) # difficulty
+        self.maps: List[MapData] = [MapData(i) for i in data['maps']] # list of available maps
         
         self.player: PlayerData = PlayerData(data['player'])
 
@@ -464,6 +453,7 @@ class WeaponData:
         self.recoil: float = data['recoil'] # how much the player gets pushed back when shot in units
         self.shake: float = data['shake'] # how much the screen should shake
         self.projectile: ProjectileData = ProjectileData(data['projectile'])
+        self.dps: float = round(avg(self.projectile.damage)*self.amount/self.speed, 1) # average damage per second
 
     def random_range(self) -> float:
         '''
@@ -570,7 +560,6 @@ class WaveData:
         '''
         Wave data a.k.a. game difficulty.
         '''
-        self.name: str = data['name'] # difficulty name
         self.spawn_delay: Tuple[float,float] = data['spawn_delay'] # range of time between
                                                                    # spawning two enemies
         self.limit_start: Tuple[int,int] = data['limit_start'] # maximum amount of enemies on field
@@ -2010,23 +1999,31 @@ class ShopElement:
         shake_offset = (random.random()-0.5)*self.shake*2
         # price
         if self.hover_key > 0.0:
-            pos = (
-                self.rect.centerx+self.hover_key*(self.size[0]/2+15)-shake_offset,
-                self.rect.centery
-            )
+            offset = self.hover_key*(self.size[0]/2+15)
+            pos = (self.rect.centerx+offset-shake_offset, self.rect.centery)
+            dps_pos = (self.rect.centerx-offset-shake_offset, self.rect.centery)
+
             if self.owned:
+                # owned text
                 draw.text(
                     save.locale.f('owned') if not self.selected else save.locale.f('selected'),
                     pos, h=0.5-(self.hover_key*0.5), v=0.5,
                     size=11, style='big', opacity=int(self.hover_key*128),
                 )
             else:
+                # price text
                 draw.text(
                     save.locale.f('currency')+str(self.weapon.cost), pos,
                     shadows=[(0,1)], h=0.5-(self.hover_key*0.5), v=0.5,
                     size=11, style='big', opacity=int(self.hover_key*255),
                     color=[255]+[255-(self.shake/5*200)]*2
                 )
+            # dps
+            draw.text(
+                f"{self.weapon.dps} {save.locale.f('dps')}", dps_pos,
+                shadows=[(0,1)], h=0.5+(self.hover_key*0.5), v=0.5,
+                opacity=int(self.hover_key*128),
+            )
 
         # image
         size = [
@@ -2240,6 +2237,163 @@ class Shop:
             self.scroll_vel = lerp(self.scroll_vel, 0, td*15)
 
             self.update_items_rect()
+
+
+class PauseMenu:
+    def __init__(self):
+        '''
+        Pause menu.
+        '''
+        self.opened: bool = False # is the pause menu opened
+        self.open_key: float = 0.0 # open animation
+
+        self.resume_hover: bool = False # is the mouse hovering over the resume button
+        self.forfeit_hover: bool = False # is the mouse hovering over the forfeit button
+        self.resume_key: float = 0.0 # resume animation
+        self.forfeit_key: float = 0.0 # forfeit animation
+        self.forfeit_hold: float = 0.0 # forfeit hold animation
+        self.smooth_forfeit_hold: float = 0.0 # smooth forfeit hold animation
+
+        self.update_rect()
+        self.update_items_rect()
+
+    def update_rect(self):
+        '''Updates shop background rect.'''
+        self.rect: pg.Rect = pg.Rect((0,0), (self.open_key*150, windowy))
+        self.rect.centerx = halfx
+
+    def update_items_rect(self):
+        '''Updates rects of all buttons.'''
+        self.resume_rect = pg.Rect((0,0), (150,50))
+        self.resume_rect.center = (halfx, (halfy+75)*self.open_key-50)
+        
+        self.forfeit_rect = pg.Rect((0,0), (150,50))
+        self.forfeit_rect.center = (halfx, (halfy+125)*self.open_key-50)
+
+    def update_menu(self):
+        '''
+        Updates the menu elements.
+        '''
+        # resume button
+        self.resume_hover = self.resume_rect.collidepoint(mouse_pos)
+        
+        if round(self.resume_key, 3) == int(self.resume_hover):
+            self.resume_key = int(self.resume_hover)
+        else:
+            self.resume_key = lerp(self.resume_key, int(self.resume_hover), td*10)
+
+        if lmb_down and self.resume_hover:
+            self.opened = False
+
+        # forfeit button
+        self.forfeit_hover = self.forfeit_rect.collidepoint(mouse_pos)
+        
+        if round(self.forfeit_key, 3) == int(self.forfeit_hover):
+            self.forfeit_key = int(self.forfeit_hover)
+        else:
+            self.forfeit_key = lerp(self.forfeit_key, int(self.forfeit_hover), td*10)
+
+    def draw(self):
+        '''
+        Draws the pause menu.
+        '''
+        if self.open_key == 0.0:
+            return
+        
+        # bg
+        color = [50+150*(1-self.open_key)]*3
+        pg.draw.rect(screen, (color), self.rect)
+
+        # paused text
+        draw.text(
+            save.locale.f('paused'), (halfx,self.open_key*150-50),
+            h=0.5, v=0.5, size=40, style='logo', shadows=[(0,-2)],
+            antialias=True
+        )
+
+        # resume button
+        draw.text(
+            save.locale.f('resume'),
+            [self.resume_rect.centerx,self.resume_rect.centery-self.resume_key*5],
+            h=0.5, v=0.5, size=15, style='round', shadows=[(0,-1)]
+        )
+
+        # forfeit button
+        pos = [
+            self.forfeit_rect.centerx,
+            self.forfeit_rect.centery-self.forfeit_key*5
+        ]
+        if self.forfeit_hold > 0.0:
+            pos[0] += (random.random()-0.5)*15*self.forfeit_hold
+            pos[1] += (random.random()-0.5)*15*self.forfeit_hold
+
+        draw.text(
+            save.locale.f('forfeit'), pos, h=0.5, v=0.5, 
+            size=15, style='round', shadows=[(0,-1)]
+        )
+        # keep holding to confirm
+        if self.forfeit_hold > 0.0:
+            pos = [
+                self.forfeit_rect.centerx,
+                self.forfeit_rect.centery+20
+            ]
+            draw.text(
+                save.locale.f('keep_holding'), pos, h=0.5, v=0.5, size=11,
+                style='big', shadows=[(0,-1)], opacity=int(min(60,self.forfeit_hold*255))
+            )
+
+        # screen dim
+        if self.forfeit_hold > 0.0:
+            draw.image(
+                'black_vignette.png', size=(windowx,windowy),
+                opacity=int(self.forfeit_hold*255)
+            )
+            draw.image(
+                'black.png', size=(windowx,windowy),
+                opacity=int(self.smooth_forfeit_hold*255)
+            )
+
+        # some debug things
+        if debug_opened:
+            pg.draw.rect(screen, (255,255,0), self.resume_rect, 1)
+            pg.draw.rect(screen, (255,255,0), self.forfeit_rect, 1)
+
+    def update(self):
+        '''
+        Updates the pause menu.
+        '''
+        # open animation
+        if round(self.open_key, 3) == int(self.opened):
+            if self.open_key != int(self.opened):
+                self.update_rect()
+                self.update_items_rect()
+
+            self.open_key = int(self.opened)
+        else:
+            self.open_key = lerp(self.open_key, int(self.opened), td*10)
+            self.update_rect()
+            self.update_items_rect()
+
+        # menu
+        if self.opened:
+            self.update_menu()
+
+        # forfeiting
+        if mouse_press[0] and (self.forfeit_hover and self.opened):
+            self.forfeit_hold += td/2
+            if self.forfeit_hold >= 1.0:
+                global app
+                app = MainMenu()
+                refresh_datapacks()
+            self.smooth_forfeit_hold = easing.QuarticEaseIn(0,1,1).ease(self.forfeit_hold)
+
+        elif self.forfeit_hold > 0.0:
+            self.forfeit_hold -= td*2
+            if self.forfeit_hold < 0.0:
+                self.forfeit_hold = 0.0
+            self.smooth_forfeit_hold = easing.QuarticEaseIn(0,1,1).ease(self.forfeit_hold)
+
+
             
 
 class Dungeon:
@@ -2247,6 +2401,8 @@ class Dungeon:
         '''
         The entire gameplay.
         '''
+        pg.mouse.set_visible(False)
+         
         # map and camers
         self.map: MapData = map # map data
 
@@ -2259,6 +2415,8 @@ class Dungeon:
         # player
         self.player: PlayerData = datapack.player # player data
         self.player_pos: Tuple[float,float] = map.player_spawn # player position
+        self.global_player_pos: Tuple[float,float] = [0,0] # on-screen player position
+        self.mouse_degrees_angle: float = 0 # mouse angle in degrees
         self.player_vel: Tuple[float,float] = [0,0] # player velocity
         self.player_health: int = self.player.health # current player health
         self.update_player_rect()
@@ -2330,6 +2488,7 @@ class Dungeon:
         self.paused: bool = False # whether to show the pause menu
         self.playing: bool = True # whether to run the game
         self.dead: bool = False # whether the player is dead
+        self.pause_menu: PauseMenu = PauseMenu() # pause menu
 
     @property
     def balance(self):
@@ -2465,6 +2624,7 @@ class Dungeon:
         if self.dead or self.shop.shop_opened:
             return
         self.paused = not self.paused
+        self.pause_menu.opened = self.paused
         self.dim = int(self.paused)*0.5
         self.playing = not self.playing
 
@@ -2788,17 +2948,13 @@ class Dungeon:
                 opacity=int(200-self.smooth_dead_key*120)
             )
             # text
-            size = (345-self.smooth_dead_key*45,115-self.smooth_dead_key*15)
-            draw.image(
-                'dead.png', (halfx, halfy), opacity=int(155+self.smooth_dead_key*100),
-                size=size, h=0.5, v=0.5
+            color = [230+25*(1-self.smooth_dead_key)] + [75+180*(1-self.smooth_dead_key)]*2
+            locale = save.locale.f('dead')
+            draw.text(
+                locale, (halfx,halfy), color,
+                int((100 if len(locale) < 8 else 70)+(1-self.smooth_dead_key)*15), 
+                'logo', h=0.5, v=0.5, antialias=True, shadows=[(1,0),(-1,0),(0,2)]
             )
-            # text glow
-            if self.dead_key > 0:
-                draw.image(
-                    'dead_glow.png', (halfx, halfy), opacity=int(255-self.smooth_dead_key*255),
-                    size=size, h=0.5, v=0.5
-                )
             
         # dimming screen
         if self.smooth_dim != 0:
@@ -2812,6 +2968,9 @@ class Dungeon:
         # balance counter
         if self.shop.open_key > 0:
             self.balance_counter.draw()
+
+        # pause menu
+        self.pause_menu.draw()
 
         # some debug info
         if debug_opened:
@@ -2861,6 +3020,10 @@ class Dungeon:
         self.balance_counter.update()
         if self.balance_counter.balance != self.balance:
             self.balance_counter.balance = self.balance
+        # pause menu
+        self.pause_menu.update()
+        if not self.pause_menu.opened and self.paused:
+            self.pause()
         
         if not self.playing:
             return
@@ -3008,30 +3171,403 @@ class Dungeon:
         self.update_ui()
 
 
+# level selector
+        
+
+class Selector:
+    def __init__(self, elements:List[Tuple[str,any]], rect:pg.Rect):
+        '''
+        The same as a dropdown menu, but expanded indefinitely.
+        '''
+        self.elements: List[Tuple[str,any]] = elements # list of elements
+        self.rect: pg.Rect = rect # rect of the selector
+        self.index: int = 0 # index of the currently selected element
+
+        self.element_size: int = 10
+        self.scroll_offset: float = 0.0 # scroll offset
+        self.scroll_vel: float = 0.0 # scroll velocity
+        self.scroll_limit: (len(self.elements)-1)*self.element_size # scroll limit
+
+    @property
+    def selected(self):
+        '''Returns the currently selected element.'''
+        return self.elements[self.index][1]
+
+    def get_dim(self, px:int):
+        '''Returns the opacity of the element by Y position.'''
+        px -= self.rect.top
+        px = px/self.rect.size/2
+        if px > 1.0: px = 1-(px-1)
+        return int(easing.SineEaseIn(0,1,1).ease(px)*255)
+    
+    def draw(self):
+        '''
+        Draws the selector.
+        '''
+        pos = self.rect.centery-self.scroll_offset
+        for i in self.elements:
+            draw.text(
+                i[0], (self.rect.centerx, pos), opacity=self.get_dim(pos)
+            )
+            pos += self.element_size
+    
+    def update(self):
+        '''
+        Updates the selector.
+        '''
+        # scroll
+        if mouse_wheel != 0.0 and self.rect.collidepoint(mouse_pos):
+            self.scroll_vel -= mouse_wheel*5
+
+        if self.scroll_vel != 0:
+            self.scroll_offset = max(0, min(self.scroll_limit, self.scroll_offset))
+            self.scroll_offset += self.scroll_vel
+            
+            self.scroll_vel = lerp(self.scroll_vel, 0, td*15)
+
+
+class MapSelector:
+    def __init__(self):
+        '''
+        Map Selector.
+        '''
+
+    def draw(self):
+        '''
+        Draws the menu.
+        '''
+        self.difficulties.draw()
+
+    def update(self):
+        '''
+        Updates the menu.
+        '''
+        self.difficulties.update()
+
+
+# main menu
+        
+
+class BGEnemy(Effect):
+    def __init__(self):
+        '''
+        Spinners that appear in main menu background.
+        '''
+        super().__init__()
+        self.image: str = random.choice(glob.glob('res\\images\\spinners\\*.png'))\
+            .removeprefix('res\\images\\') # image
+        self.size: Tuple[int,int] = [random.randint(50,100)]*2 # image size
+        self.pos: Tuple[int,float] = [random.randint(0,windowx), -self.size[1]/2] # position
+        self.vel: int = random.randint(30,70) # velocity
+        self.rotation: int = random.randint(0, 360) # rotation
+        self.rotation_vel: int = random.randint(-40,40) # rotation velocity
+        self.opacity: int = random.randint(30,80) # random opacity
+
+    def draw(self):
+        '''
+        Draws the spinner.
+        '''
+        draw.image(self.image, self.pos, self.size, 0.5, 0.5, self.rotation, self.opacity)
+
+    def update(self):
+        '''
+        Updates the spinner.
+        '''
+        self.pos[1] += self.vel*td
+        self.rotation += self.rotation_vel*td
+
+        if self.pos[1] > windowy+self.size[1]/2:
+            self.deletable = True
+
+        
+class Letter:
+    def __init__(self, letter:str, pos:int, anim_offset:int):
+        '''
+        One letter on the main menu logo.
+        '''
+        self.letter: str = letter # letter
+        self.position: int = pos # position
+        self.y: int = 100 # constant y position
+        self.stamp_anim: float = anim_offset+1 # stamp animation offset
+        self.smooth_stamp_anim: float = 1.0 # smoothed out stamp animation offset
+        self.stamp: bool = False # whether the letter is playing the stamp animation
+        self.shake: float = 0.0 # shake intensity
+
+        self.random_rotation: int = random.randint(-30,30) # random rotation
+        self.sin: float = 0.0 # sin animation
+
+    def draw(self):
+        '''
+        Draws the letter.
+        '''
+        # shake animation
+        if self.shake > 0.0:
+            shake = [(random.random()-0.5)*self.shake*10 for i in range(2)]
+        else:
+            shake = [0,0]
+
+        # stamp text animation
+        if self.stamp:
+            pos = [self.position+shake[0], self.y+shake[1]]
+            draw.text(
+                self.letter, pos, size=50+int(self.smooth_stamp_anim*50),
+                style='logo', h=0.5, v=0.5, shadows=[(0,-4)], antialias=True,
+                opacity=int(200-self.smooth_stamp_anim*200),
+                rotation=self.random_rotation*self.smooth_stamp_anim
+            )
+        elif self.stamp_anim > 0.0:
+            pass
+        # sin text animation
+        else:
+            pos = [self.position+shake[0], self.y+np.sin(self.sin)*7+shake[1]]
+            draw.text(
+                self.letter, pos, size=50, style='logo',
+                h=0.5, v=0.5, shadows=[(0,-4)], antialias=True
+            )
+            # glow
+            if self.shake > 0.0:
+                draw.image('glow.png', pos, (160,180), h=0.5, v=0.5, opacity=int(self.shake*30))
+
+    def update(self):
+        '''
+        Updates the letter.
+        '''
+        # stamp animation
+        if self.stamp_anim > 0.0:
+            if self.stamp_anim < 1.0:
+                self.stamp = True
+            self.stamp_anim -= td*1.3
+            self.smooth_stamp_anim = easing.SineEaseOut(0,1,1).ease(self.stamp_anim)
+
+        elif self.stamp:
+            self.stamp = False
+            self.shake = 1.0
+
+        # sin animation
+        else:
+            self.sin += td*2
+            if self.sin > 2*np.pi:
+                self.sin -= 2*np.pi
+
+        # shake animation
+        if round(self.shake, 1) == 0.0:
+            self.shake = 0.0
+        else:
+            self.shake = lerp(self.shake, 0.0, td*10)
+        
+
+class MainMenuLogo:
+    def __init__(self):
+        '''
+        Main menu logo.
+        '''
+        # letters
+        self.letters: List[Letter] = [] # logo letters
+        string: str = save.locale.f('game_title') # logo text
+        sizes: List[int] = [draw.get_text_size(i, 50, 'logo')[0] for i in string] # sizes of individual letters
+        size: int = sum(sizes) # total logo size
+        start_pos = halfx-size/2
+        for index, i in enumerate(string): # generating letters
+            self.letters.append(Letter(i, start_pos+sizes[index]/2, index/10))
+            start_pos += sizes[index]
+
+    def draw(self):
+        '''
+        Draws the logo.
+        '''
+        for i in self.letters:
+            i.draw()
+
+    def update(self):
+        '''
+        Updates the logo.
+        '''
+        for i in self.letters:
+            i.update()
+
+
+class MainMenuButton:
+    def __init__(self, image:str, text:str, pos:int, anim_offset:float, callback:Callable[[],None]):
+        '''
+        Main menu button.
+        '''
+        self.image: str = image # button image
+        self.text: str = text # button locale index
+        self.callback: Callable[[],None] = callback # button callback
+
+        self.position: int = pos # button x position
+        self.y: int = halfy+50 # constant button y position
+        self.rect: pg.Rect = pg.Rect((0,0), (32,32)) # button rect
+        self.rect.center = (self.position, self.y)
+        self.hovered: bool = False # whether the button is currently hovered
+
+        self.opacity: float = -anim_offset # opacity
+        self.sin: float = 0.0 # sin animation
+        self.hover_key: float = 0.0 # hover key animation
+
+    def draw(self):
+        '''
+        Draws the button.
+        '''
+        # image
+        if self.opacity > 0.0:
+            draw.image(
+                self.image, (self.position, self.y+np.sin(self.sin)*5-self.hover_key*10),
+                size=[52-self.opacity*20+self.hover_key*10]*2,
+                h=0.5, v=0.5, opacity=int(self.opacity*255)
+            )
+        # text
+        if self.hover_key > 0.0:
+            draw.text(
+                save.locale.f(self.text), 
+                (self.position, self.y+np.sin(self.sin)*5+self.hover_key*10+20),
+                h=0.5, v=0.5, opacity=int(self.opacity*self.hover_key*255)
+            )
+
+    def update(self):
+        '''
+        Updates the button.
+        '''
+        # hovering
+        self.hovered = self.rect.collidepoint(mouse_pos)
+
+        if round(self.hover_key, 3) == int(self.hovered):
+            self.hover_key = int(self.hovered)
+        else:
+            self.hover_key = lerp(self.hover_key, int(self.hovered), td*10)
+
+        # clicking
+        if lmb_down and self.hovered:
+            self.callback()
+
+        # opacity
+        if self.opacity < 1.0:
+            if self.opacity < 0.0:
+                self.opacity += td
+            else:
+                if round(self.opacity, 1) == 1.0:
+                    self.opacity = 1.0
+                else:
+                    self.opacity = lerp(self.opacity, 1.0, td*3)
+
+        # sin animation
+        if self.opacity > 0.0:
+            self.sin += td*2
+            if self.sin > 2*np.pi:
+                self.sin -= 2*np.pi
+
+
+class MainMenu:
+    def __init__(self):
+        '''
+        Main menu that appears after the starting animation.
+        '''
+        pg.mouse.set_visible(True)
+
+        self.logo: MainMenuLogo = MainMenuLogo() # logo
+        self.buttons: List[MainMenuButton] = [
+            MainMenuButton('icons/play.png',     "play",     halfx-200, 0.0, self.play),
+            MainMenuButton('icons/scores.png',   "scores",   halfx-100, 0.3, self.scores),
+            MainMenuButton('icons/settings.png', "settings", halfx,     0.6, self.settings),
+            MainMenuButton('icons/credits.png',  "credits",  halfx+100, 0.9, self.credits),
+            MainMenuButton('icons/exit.png',     "exit",     halfx+200, 1.2, self.exit),
+        ] # main menu buttons
+        self.animation: bool = False # whether the main menu animation is running
+        self.anim_key: float = 0.0 # main menu animation
+        self.end_menu = None # menu to spawn after the animation finishes
+        self.bg: List[BGEnemy] = [] # list of spinners in the background
+        self.spawn_timer: float = 0.0 # timer for spawning spinners
+
+    def play(self):
+        '''Callback for the play button.'''
+        self.animation = True
+        self.end_menu = MapSelector()
+
+    def scores(self):
+        '''Callback for the scores button.'''
+        self.animation = True
+        
+    def settings(self):
+        '''Callback for the settings button.'''
+        self.animation = True
+
+    def credits(self):
+        '''Callback for the credits button.'''
+        self.animation = True
+
+    def exit(self):
+        '''Callback for the exit button.'''
+        global running
+        running = False
+
+    def draw(self):
+        '''
+        Draws the main menu.
+        '''
+        # bg
+        for i in self.bg:
+            i.draw()
+        # bg dim
+        draw.image('black_vignette.png', size=(windowx,windowy))
+        # logo
+        self.logo.draw()
+        # buttons
+        for i in self.buttons:
+            i.draw()
+        # dim
+        if self.anim_key > 0.0:
+            draw.image('black.png', size=(windowx,windowy), opacity=int(self.anim_key*255))
+
+    def update(self):
+        '''
+        Updates the main menu.
+        '''
+        # logo
+        self.logo.update()  
+        # buttons
+        if not self.animation: 
+            for i in self.buttons:
+                i.update()
+
+        # dim animation
+        if self.animation:
+            self.anim_key += td*3
+            if self.anim_key >= 1.0:
+                # switching menu
+                if self.end_menu:
+                    global app
+                    app = self.end_menu
+                # error!!!
+                else:
+                    self.animation = False
+                    self.anim_key = 0.0
+
+        # spawning background
+        self.spawn_timer -= td
+        if self.spawn_timer <= 0.0:
+            self.spawn_timer = random.random()*0.5+0.5
+            self.bg.append(BGEnemy())
+
+        # background
+        new = []
+        for i in self.bg:
+            i.update()
+            if not i.deletable:
+                new.append(i)
+        self.bg = new
+
 
 # app variables
-                
-maps = [
-    MapData({
-        "image":        "maps/map1.png",
-        "size":         [20,10],
-        "spawn":        [10,5],
-        "enemy_spawns": [[1,8], [18,1], [18,8], [1,1]]
-    })
-]
+
 locales: List[Locale]
 refresh_locales()
 
 save = SaveData('save.json')
 
-datapacks: Dict[str, Datapack]
 datapack: Datapack
 refresh_datapacks()
 
-app = Dungeon(
-    datapack.waves[0],
-    maps[0]
-)
+app = MainMenu()
 debug_opened = False
 fps_graph = []
 

@@ -1,5 +1,6 @@
 {
     "name": "Русский",
+    "game_title": "SPINFINITY",
     "level_bar": "Уровень {}",
     "intermission": "Перерыв",
     "upcoming_wave": "ПРОБЕЛ - пропуск на {} волну",
@@ -9,5 +10,16 @@
     "get_ready": "Приготовьтесь!",
     "currency": "$",
     "owned": "Получено",
-    "selected": "Выбрано"
+    "selected": "Выбрано",
+    "dps": "Урон/с",
+    "play": "Играть",
+    "scores": "Рекорды",
+    "settings": "Настройки",
+    "credits": "Авторы",
+    "exit": "Выход",
+    "paused": "ПАУЗА",
+    "dead": "МЁРТВ",
+    "resume": "Продолжить",
+    "forfeit": "Сдаться",
+    "keep_holding": "Удерживайте для продолжения"
 }

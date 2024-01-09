@@ -1,5 +1,6 @@
 {
     "name": "English",
+    "game_title": "SPINFINITY",
     "level_bar": "Level {}",
     "intermission": "Intermission",
     "upcoming_wave": "SPACE to skip to Wave {}",
@@ -9,5 +10,16 @@
     "get_ready": "Get ready!",
     "currency": "$",
     "owned": "Owned",
-    "selected": "Selected"
+    "selected": "Selected",
+    "dps": "DMG/s",
+    "play": "Play",
+    "scores": "Scores",
+    "settings": "Settings",
+    "credits": "Credits",
+    "exit": "Exit",
+    "paused": "PAUSED",
+    "dead": "DEAD",
+    "resume": "Resume",
+    "forfeit": "Forfeit",
+    "keep_holding": "Keep holding to confirm"
 }
