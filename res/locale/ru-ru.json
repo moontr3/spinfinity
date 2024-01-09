@@ -22,6 +22,17 @@
     "forfeit": "Сдаться",
     "keep_holding": "Удерживайте для продолжения",
     "back": "Назад",
+    "start": "Начать",
+    "choose_map": "ВЫБЕРИТЕ КАРТУ",
+    "volume": "Громкость",
+    "language": "Язык",
+    "fps_limit": "Лимит FPS",
+    "shop_hotkey": "Е - Открыть магазин",
+    "new_best": "НОВЫЙ РЕКОРД!",
+    "best": "РЕКОРД: {}",
+    "min_ago": "{} мин. назад",
+    "hr_ago": "{} час. назад",
+    "days_ago": "{} ден. назад",
     "credits_roles": "Спрайты\n\n\nШрифты\n\n\nПрограммирование",
     "credits_names": "moontr3\nСтоковые изображения\n\nmoontr3\nzeeglo eYe/FS: elmoyenique\n\nmoontr3"
 }

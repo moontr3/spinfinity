@@ -22,6 +22,17 @@
     "forfeit": "Forfeit",
     "keep_holding": "Keep holding to confirm",
     "back": "Back",
+    "start": "Start",
+    "choose_map": "CHOOSE A MAP",
+    "volume": "Volume",
+    "language": "Language",
+    "fps_limit": "FPS Limit",
+    "shop_hotkey": "E - Open shop",
+    "new_best": "NEW BEST!",
+    "best": "BEST: {}",
+    "min_ago": "{} min ago",
+    "hr_ago": "{} hr ago",
+    "days_ago": "{} dy ago",
     "credits_roles": "Sprites\n\n\nFonts\n\n\nProgramming",
     "credits_names": "moontr3\nStock images\n\nmoontr3\nzeeglo eYe/FS: elmoyenique\n\nmoontr3"
 }

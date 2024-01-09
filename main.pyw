@@ -50,6 +50,7 @@ screen = pg.Surface((windowx, windowy)) # the surface that everything gets
 
 running = True
 pg.display.set_caption('Spinfinity')
+pg.display.set_icon(pg.image.load('res/images/spinners/yellow.png'))
 draw.def_surface = screen
 
 halfx = windowx//2 # half of the X window size
@@ -62,6 +63,9 @@ TILE_SIZE = 32
 
 SHOP_OPEN_KEY = pg.K_e
 BACK_KEY = pg.K_ESCAPE
+
+FPS_RANGE = ["MAX",30,60,75,90,120,144,160,200,240,300]
+VOLUME_RANGE = [0,10,20,30,40,50,60,70,80,90,100]
 
 
 # app functions 
@@ -110,6 +114,44 @@ def load_locale(filename:str, code:str):
     '''
     with open(filename, encoding='utf-8') as f:
         return Locale(code, json.load(f))
+
+def set_lang_by_name(name:str):
+    '''
+    Sets language by name.
+    '''
+    code = [i for i in locales if locales[i].name == name][0]
+    save.locale_code = code
+    save.update_locale()
+    save.save()
+
+def set_fps_limit(amount:str):
+    '''
+    Sets new FPS limit.
+    '''
+    if amount == "MAX":
+        amount = 0
+    else:
+        amount = int(amount)
+    save.fps_limit = amount
+    global fps
+    fps = amount
+    save.save()
+
+def set_volume(amount:str):
+    '''
+    Sets new FPS limit.
+    '''
+    amount = int(amount)
+    save.volume = amount
+    save.save()
+
+
+def play_sound(path:str):
+    sound = pg.mixer.Sound('res/sounds/'+path+'.mp3')
+    sound.set_volume(save.volume/100)
+    channel = pg.mixer.find_channel(True)
+    channel.stop()
+    channel.play(sound)
 
 
 def avg(elements:List[float]) -> float:
@@ -215,9 +257,27 @@ class SaveData:
         new one.
         '''
         self.locale_code: str = 'en-us'
+        self.fps_limit: int = 0
+        self.volume: int = 100
+        self.best_game = None
         self.update_locale()
 
         self.save()
+
+    def game(self, points:int):
+        '''
+        Saves the game in the system.
+
+        Returns True if the old record was beaten.
+        '''
+        if self.best_game == None or self.best_game['points'] < points:
+            self.best_game = {
+                'points': points,
+                'time': time.time()
+            }
+            self.save()
+            return True
+        return False
 
     def load(self):
         '''
@@ -232,6 +292,9 @@ class SaveData:
             return
         # loading save
         self.locale_code: str = data['locale']
+        self.fps_limit: int = data['fps_limit']
+        self.volume: int = data['volume']
+        self.best_game: dict = data['best_game']
         self.update_locale()
         
     def save(self):
@@ -240,7 +303,10 @@ class SaveData:
         '''
         # composing json
         data = {
-            'locale': self.locale_code
+            'locale': self.locale_code,
+            'fps_limit': self.fps_limit,
+            'volume': self.volume,
+            'best_game': self.best_game
         }
         # saving to file
         with open(self.file, 'w', encoding='utf-8') as f:
@@ -452,7 +518,8 @@ class WeaponData:
         self.amount: int = data['amount'] # amount of projectiles to spawn when shot
         self.recoil: float = data['recoil'] # how much the player gets pushed back when shot in units
         self.shake: float = data['shake'] # how much the screen should shake
-        self.projectile: ProjectileData = ProjectileData(data['projectile'])
+        self.projectile: ProjectileData = ProjectileData(data['projectile']) # projectile 
+        self.sound: str = data['sound'] # sound to be played when shot
         self.dps: float = round(avg(self.projectile.damage)*self.amount/self.speed, 1) # average damage per second
 
     def random_range(self) -> float:
@@ -2139,6 +2206,7 @@ class Shop:
     def select(self, index:int):
         '''Selects a weapon.'''
         self.selected_index = index
+        play_sound('click')
         for i in self.elements:
             i.selected = False
         self.elements[index].selected = True
@@ -2147,6 +2215,7 @@ class Shop:
     def unlock(self, index:int):
         '''Unlocks a weapon.'''
         self.unlocked_indexes.append(index)
+        play_sound('purchase')
         self.elements[index].owned = True
         self.elements[index].glow1 = 1.0
         self.elements[index].glow2 = 1.0
@@ -2392,12 +2461,10 @@ class PauseMenu:
             if self.forfeit_hold < 0.0:
                 self.forfeit_hold = 0.0
             self.smooth_forfeit_hold = easing.QuarticEaseIn(0,1,1).ease(self.forfeit_hold)
-
-
             
 
 class Dungeon:
-    def __init__(self, wave:WaveData, map:MapData):
+    def __init__(self, map:MapData):
         '''
         The entire gameplay.
         '''
@@ -2455,19 +2522,19 @@ class Dungeon:
         self.smooth_dead_key: float = 0.0 # more smoothing out death animation
 
         # wave data
-        self.wave: WaveData = wave # wave data
+        self.wave: WaveData = datapack.wave # wave data
         self.wave_bar: WaveIndicator = WaveIndicator() # wave bar on top 
         self.wave_bar.set_max(10)
         self.is_intermission: bool = True # guess what
         self.intermission_timer: float = 10 # how much time of intermission is left
         self.wave_number: int = 0 # wave number
-        self.waves_before_boss: int = wave.boss_every-1 # how much waves left before boss spawns
+        self.waves_before_boss: int = self.wave.boss_every-1 # how much waves left before boss spawns
 
         # enemy spawning
         self.enemy_queue: List[EnemyData] = [] # a queue of enemies to spawn
         self.spawn_timer: float = 0 # time before spawning the next enemy
-        self.queue_manager: QueueManager = QueueManager(wave) # manages what enemies to spawn
-        self.spawn_max: int = random.randint(*wave.limit_start) # max amount of enemies on field
+        self.queue_manager: QueueManager = QueueManager(self.wave) # manages what enemies to spawn
+        self.spawn_max: int = random.randint(*self.wave.limit_start) # max amount of enemies on field
         self.boss_wave: bool = False # whether the boss wave is active
 
         # ui
@@ -2489,6 +2556,8 @@ class Dungeon:
         self.playing: bool = True # whether to run the game
         self.dead: bool = False # whether the player is dead
         self.pause_menu: PauseMenu = PauseMenu() # pause menu
+        self.dead_anim: bool = False # whether the death screen dimming anim is active
+        self.dead_vignette: float = 0.0 # dimming opacity from 0.0 to 1.0
 
     @property
     def balance(self):
@@ -2595,6 +2664,7 @@ class Dungeon:
         This function gets called when an enemy is
         killed.
         '''
+        play_sound('kill')
         self.effects.append(KillIndicator(cost, position))
         self.add_balance(cost)
         self.add_score(cost)
@@ -2616,6 +2686,7 @@ class Dungeon:
             self.kills_to_next_level = self.wave.level_up_kills+self.level_bar.bar_max
             self.level += 1
             self.level_bar.set_level(self.kills_to_next_level)
+            play_sound('level_up')
 
     def pause(self):
         '''
@@ -2627,6 +2698,7 @@ class Dungeon:
         self.pause_menu.opened = self.paused
         self.dim = int(self.paused)*0.5
         self.playing = not self.playing
+        play_sound('click')
 
     def open_shop(self):
         '''
@@ -2637,6 +2709,7 @@ class Dungeon:
         self.shop.shop_opened = not self.shop.shop_opened
         self.dim = int(self.shop.shop_opened)*0.5
         self.playing = not self.playing
+        play_sound('click')
 
     def kill(self):
         '''
@@ -2645,6 +2718,8 @@ class Dungeon:
         self.dead = True
         self.playing = False
         self.paused = False
+        play_sound('fail')
+        play_sound('glassbreak')
 
     def receive_random_badge(self) -> str:
         '''
@@ -2689,6 +2764,13 @@ class Dungeon:
                 (0,0), (windowx,windowy),
                 opacity=int(self.vignette_opacity*255)
             )
+
+        # shop thing
+        draw.text(
+            save.locale.f('shop_hotkey'), 
+            (windowx-10, windowy-20-self.weapon.size[1]),
+            h=1, v=1
+        )
 
         # health bar
         self.health_bar.draw()
@@ -2851,6 +2933,7 @@ class Dungeon:
 
             # switching to gameplay
             if self.intermission_timer <= 0 or pg.K_SPACE in keysdown:
+                play_sound('wave')
                 self.wave_number += 1
                 self.queue_manager.step()
                 # boss wave
@@ -2889,6 +2972,7 @@ class Dungeon:
 
             # switching to intermission
             if len(self.enemy_queue) == 0 and len(self.enemies) == 0:
+                play_sound('wave')
                 self.is_intermission = True
                 self.wave_bar.set_max(10)
                 self.waves_before_boss -= 1
@@ -2984,6 +3068,13 @@ class Dungeon:
             h=0.5,v=0.5,
         )
 
+        # death vignette
+        if self.dead_vignette > 0.0:
+            draw.image(
+                'black.png', size=(windowx,windowy),
+                opacity=int(self.dead_vignette*255)
+            )
+
 
     def update(self):
         '''
@@ -3002,6 +3093,18 @@ class Dungeon:
                 self.smooth_dead_key = easing.ExponentialEaseOut(0,1,1).ease(self.dead_key)
                 if self.dead_key > 1.0:
                     self.dead_key = 1.0
+
+            elif lmb_down:
+                self.dead_anim = True
+
+        # dimming screen
+        if self.dead_anim:
+            self.dead_vignette += td*5
+            if self.dead_vignette > 1.0:
+                # switching menus
+                global app
+                app = DeathScreen(self.score)
+                refresh_datapacks()
 
         # pausing and menus
         if BACK_KEY in keysdown:
@@ -3066,6 +3169,7 @@ class Dungeon:
                         self.damage_multiplier
                     ))
                 self.shooting_timer += self.weapon.speed
+                play_sound(self.weapon.sound)
 
                 # shaking and recoil
                 self.shakiness += self.weapon.shake
@@ -3106,6 +3210,7 @@ class Dungeon:
             if i.projectile.hit_type == 'enemy':
                 for enemy in self.enemies:
                     if enemy.rect.collidepoint(i.position):
+                        play_sound('stamp')
                         destroy = True
                         fx = False
                         enemy.hit(i.damage)
@@ -3171,6 +3276,97 @@ class Dungeon:
         self.update_ui()
 
 
+# death menu
+
+
+class DeathScreen:
+    def __init__(self, points:int):
+        '''
+        A death menu.
+        '''
+        pg.mouse.set_visible(True)
+
+        self.new_best: bool = save.game(points) # has the player set a new record
+        self.previous_best: int = save.best_game['points'] if not self.new_best else None
+        self.points: int = points # points earned
+        self.smooth_points: float = 0 # points appearing animation
+        self.show_result: bool = points == 0 # shows the hi score
+
+        self.anim_key: float = 1.0 # animation key
+        self.glow1: float = 0.0 # glow effect 1
+        self.glow2: float = 0.0 # glow effect 2
+        self.scale: float = 0.0 # counter font size
+
+    def draw(self):
+        '''
+        Draws the menu.
+        '''
+        # counter
+        draw.text(
+            round(self.smooth_points), (halfx,halfy), style='logo', antialias=True,
+            size=int(24+32*self.scale), opacity=int(255*self.anim_key), h=0.5, v=0.5
+        )
+
+        # hi score
+        if self.show_result:
+            text = save.locale.f('new_best') if self.new_best else save.locale.f('best', [self.previous_best])
+            draw.text(text, (halfx,halfy+60), h=0.5, v=0.5)
+            # glow
+            if self.glow2 > 0:
+                draw.image(
+                    'glow.png', (halfx,halfy+60), (60,15), h=0.5,v=0.5,
+                    opacity=int(255*self.glow1),
+                )
+                draw.image(
+                    'glow.png', (halfx,halfy+60), (150,5), h=0.5,v=0.5,
+                    opacity=int(255*self.glow2),
+                )
+
+        # glow
+        if self.glow2 > 0:
+            draw.image(
+                'glow.png', (halfx,halfy), (200,70), h=0.5,v=0.5,
+                opacity=int(255*self.glow1),
+            )
+            draw.image(
+                'glow.png', (halfx,halfy), (500,16), h=0.5,v=0.5,
+                opacity=int(255*self.glow2),
+            )
+
+
+    def update(self):
+        '''
+        Updates the menu.
+        '''
+        # counter going up
+        if round(self.smooth_points) != self.points:
+            self.smooth_points = lerp(self.smooth_points, self.points, td)
+            self.anim_key = self.smooth_points/self.points
+            self.scale = easing.SineEaseInOut(0,1,1).ease(self.anim_key)
+        elif self.smooth_points != self.points:
+            self.glow1 = 1.0
+            self.glow2 = 1.0
+            self.show_result = True
+            self.smooth_points = self.points
+
+        # 2 glow anim
+        if round(self.glow2, 4) != 0:
+            self.glow2 = lerp(self.glow2, 0, td)
+        else:
+            self.glow2 = 0
+
+        # 1 glow anim
+        if round(self.glow1, 2) != 0:
+            self.glow1 = lerp(self.glow1, 0, td*5)
+        else:
+            self.glow1 = 0
+
+        # switching menus
+        if self.show_result and lmb_down:
+            global app
+            app = MainMenu()
+
+
 # menu stuff
         
 
@@ -3210,10 +3406,11 @@ class BackButton:
 
         # clicking
         if lmb_down and self.hovered:
+            play_sound('lowclick')
             self.callback()
 
 
-# settings
+# credits
         
 
 class Credits:
@@ -3269,6 +3466,75 @@ class Credits:
                 # switching menu
                 global app
                 app = MainMenu()
+
+
+# settings
+                
+
+class Chooser:
+    def __init__(self, name_code:str, rect:pg.Rect, elements:List, callback:Callable, default_index:int):
+        '''
+        A chooser in settings.
+        '''
+        self.name: str = name_code # locale code of the name
+        self.elements: List = elements # list of elements to choose from
+        self.selected_index: int = default_index # index of the selected element
+        self.callback: Callable = callback # on click callback
+        self.rect: pg.Rect = rect # button rect
+
+        self.left_hovered: bool = False # is the mouse over the left button
+        self.left_rect: pg.Rect = pg.Rect(rect.topleft, (50, rect.size[1])) # rect of the left button
+        self.right_hovered: bool = False # is the mouse over the left button
+        self.right_rect: pg.Rect = pg.Rect((rect.right-50,rect.top), (50, rect.size[1])) # rect of the right button
+        
+    def choose(self, index:int):
+        '''Chooses an element from the list.'''
+        self.selected_index = index
+        self.callback(self.elements[index])
+        play_sound('click')
+
+    def draw(self):
+        '''
+        Draws the chooser.
+        '''
+        # name
+        draw.text(save.locale.f(self.name), (self.rect.centerx, self.rect.top), h=0.5)
+        # selected element
+        draw.text(
+            self.elements[self.selected_index], 
+            (self.rect.centerx, self.rect.bottom), 
+            h=0.5, v=1, size=11, style='big'
+        )
+
+        # arrows
+        draw.image(
+            'icons/play.png', self.left_rect.center, (24,24),
+            h=0.5, v=0.5, opacity=127+int(self.left_hovered)*128,
+            fliph=True
+        )
+        draw.image(
+            'icons/play.png', self.right_rect.center, (24,24),
+            h=0.5, v=0.5, opacity=127+int(self.right_hovered)*128
+        )
+
+    def update(self):
+        '''
+        Updates the chooser.
+        '''
+        self.left_hovered = self.left_rect.collidepoint(mouse_pos)
+        self.right_hovered = self.right_rect.collidepoint(mouse_pos)
+
+        if lmb_down:
+            # decreasing
+            if self.left_hovered:
+                index = self.selected_index-1
+                if index < 0: index = len(self.elements)-1
+                self.choose(index)
+            # increasing
+            if self.right_hovered:
+                index = self.selected_index+1
+                if index > len(self.elements)-1: index = 0
+                self.choose(index)
         
 
 class Settings:
@@ -3279,6 +3545,29 @@ class Settings:
         self.animation: bool = False # whether the main menu animation is running
         self.anim_key: float = 0.0 # main menu animation
         self.back_button: BackButton = BackButton(self.back)
+        self.elements: List = [
+            Chooser(
+                'volume', 
+                pg.Rect((halfx-150,120), (300,25)), 
+                VOLUME_RANGE,  
+                set_volume,  
+                VOLUME_RANGE.index(save.volume)
+            ),
+            Chooser(
+                'language', 
+                pg.Rect((halfx-150,170), (300,25)), 
+                [locales[i].name for i in locales], 
+                set_lang_by_name, 
+                [locales[i].key for i in locales].index(save.locale_code)
+            ),
+            Chooser(
+                'fps_limit', 
+                pg.Rect((halfx-150,220), (300,25)), 
+                FPS_RANGE, 
+                set_fps_limit,  
+                (FPS_RANGE.index(save.fps_limit) if save.fps_limit != 0 else 0)
+            )
+        ] # list of settings
 
     def back(self):
         '''Returns to the main menu.'''
@@ -3290,6 +3579,16 @@ class Settings:
         '''
         # back button
         self.back_button.draw()
+
+        # title
+        draw.text(
+            save.locale.f('settings'), (halfx, 30), 
+            h=0.5, size=30, style='logo', antialias=True
+        )
+
+        # elements
+        for i in self.elements:
+            i.draw()
 
         # dim
         if self.anim_key > 0.0:
@@ -3305,6 +3604,10 @@ class Settings:
         # exiting on escape
         if BACK_KEY in keysdown:
             self.back()
+
+        # elements
+        for i in self.elements:
+            i.update()
 
         # dim animation
         if self.animation:
@@ -3325,11 +3628,40 @@ class Map:
         '''
         self.map: MapData = map # map data
         self.rect: pg.Rect = rect # rect
+        self.size: Tuple[int,int] = rect.size # size
+        self.hover_size: Tuple[int,int] = (rect.width*1.2, rect.height*1.2) # size on hover
+
+        self.hovered: bool = False # whether the map is currently hovered
+        self.hover_key: float = 0.0 # mouse hover key animation
+        self.selected: bool = False # whether the map is currently selected
 
     def draw(self):
         '''
         Draws the map.
         '''
+        # base image
+        size = [
+            lerp(self.size[0], self.hover_size[0], self.hover_key),
+            lerp(self.size[1], self.hover_size[1], self.hover_key),
+        ]
+        draw.image(self.map.image, self.rect.center, size, h=0.5,v=0.5)
+
+        # selection glow
+        if self.selected:
+            draw.image(
+                self.map.image, self.rect.center, size,
+                h=0.5,v=0.5, blending=pg.BLEND_ADD
+            )
+
+        # size text
+        draw.text(
+            f'{self.map.size[0]}x{self.map.size[1]}', self.rect.center,
+             h=0.5, v=0.5, shadows=[(-1,0),(1,0),(0,1),(0,-1)]
+        )
+
+        # some debug things
+        if debug_opened: 
+            pg.draw.rect(screen, (255,255,0), self.rect, 1)
 
     def update(self):
         '''
@@ -3337,6 +3669,54 @@ class Map:
         '''
         # mouse hover
         self.hovered = self.rect.collidepoint(mouse_pos)
+
+        # hover animation
+        if round(self.hover_key, 3) == int(self.hovered):
+            self.hover_key = int(self.hovered)
+        else:
+            self.hover_key = lerp(self.hover_key, int(self.hovered), td*10)
+
+
+class StartButton:
+    def __init__(self, callback:Callable):
+        '''
+        The start button in the map selector.
+        '''
+        self.callback: Callable = callback # on click callback
+        self.rect = pg.Rect((halfx-50,windowy-75), (100, 30))
+
+        self.hovered: bool = False # whether the map is currently hovered
+        self.hover_key: float = 0.0 # mouse hover key animation
+
+    def draw(self):
+        '''
+        Draws the button.
+        '''
+        # background
+        if self.hover_key > 0.0:
+            color = [55*self.hover_key,195*self.hover_key,45*self.hover_key]
+            pg.draw.rect(screen, color, self.rect, 0, 3)
+
+        # outline
+        pg.draw.rect(screen, [55,195,45], self.rect, 1, 3)
+
+        # text
+        draw.text(
+            save.locale.f('start'), self.rect.center, size=11,
+            style='big', h=0.5, v=0.5, shadows=[(0,1)]
+        )
+
+    def update(self):
+        '''
+        Updates the map.
+        '''
+        # mouse hover
+        self.hovered = self.rect.collidepoint(mouse_pos)
+
+        # clicking
+        if lmb_down and self.hovered:
+            play_sound('highclick')
+            self.callback()
 
         # hover animation
         if round(self.hover_key, 3) == int(self.hovered):
@@ -3353,27 +3733,72 @@ class MapSelector:
         self.animation: bool = False # whether the main menu animation is running
         self.anim_key: float = 0.0 # main menu animation
         self.end_menu = None # menu to spawn after the animation finishes
+
         self.maps: List[Map] = [] # list of maps
+        size: int = sum([i.size[0]*6 for i in datapack.maps])+(len(datapack.maps)-1)*30 # total size of all maps
+        pos: int = halfx-size/2
+        for i in datapack.maps:
+            rect = pg.Rect([pos, 0], (i.size[0]*6, i.size[1]*6))
+            rect.centery = halfy
+            self.maps.append(Map(i, rect))
+            pos += i.size[0]*6+30
+
+        self.select(0)
 
         self.back_button: BackButton = BackButton(self.back)
+        self.start_button: StartButton = StartButton(self.play)
 
     def back(self):
         '''Returns to the main menu.'''
         self.animation = True
         self.end_menu = MainMenu()
 
+    def play(self):
+        '''Begins the game.'''
+        self.animation = True
+        self.end_menu = Dungeon(self.maps[self.selected_index].map)
+
     def select(self, index:int):
         '''Selects a map.'''
+        self.selected_index: int = index
         for i in self.maps:
             i.selected = False
-        i[index].selected = True
+        self.maps[index].selected = True
 
     def draw(self):
         '''
         Draws the menu.
         '''
+        # title text
+        draw.text(
+            save.locale.f('choose_map'), (halfx, 40), antialias=True,
+            size=25, style='logo', h=0.5, v=0.5, shadows=[(0,1)]
+        )
         # back button
         self.back_button.draw()
+        # start button
+        self.start_button.draw()
+
+        # best result
+        if save.best_game != None:
+            draw.text(
+                save.locale.f('best', [save.best_game['points']]), (5, windowy-15),
+                size=11, style='big', v=1, opacity=128
+            )
+            type = 'min_ago'
+            delta = (time.time()-save.best_game['time'])/60
+            if delta > 60:
+                delta /= 60
+                type = 'hr_ago'
+                if delta > 24:
+                    delta /= 24
+                    type = 'days_ago'
+            text = save.locale.f(type, [round(delta, 1)])
+            draw.text(text, (5, windowy-5), v=1, opacity=128)
+
+        # maps
+        for i in self.maps:
+            i.draw()
 
         # dim
         if self.anim_key > 0.0:
@@ -3383,8 +3808,18 @@ class MapSelector:
         '''
         Updates the menu.
         '''
+        # maps
+        for index, i in enumerate(self.maps):
+            i.update()
+            # selecting map
+            if lmb_down and i.hovered:
+                play_sound('click')
+                self.select(index)
+
         # back button
         self.back_button.update()
+        # start button
+        self.start_button.update()
 
         # exiting on escape
         if BACK_KEY in keysdown:
@@ -3501,6 +3936,7 @@ class Letter:
         elif self.stamp:
             self.stamp = False
             self.shake = 1.0
+            play_sound('stamp')
 
         # sin animation
         else:
@@ -3638,17 +4074,20 @@ class MainMenu:
 
     def play(self):
         '''Callback for the play button.'''
+        play_sound('click')
         self.animation = True
         self.end_menu = MapSelector()
         
     def settings(self):
         '''Callback for the settings button.'''
         self.animation = True
+        play_sound('click')
         self.end_menu = Settings()
 
     def credits(self):
         '''Callback for the credits button.'''
         self.animation = True
+        play_sound('click')
         self.end_menu = Credits()
 
     def exit(self):
@@ -3729,7 +4168,8 @@ fps_graph = []
 
 
 # preparation 
-    
+
+fps = save.fps_limit    
 update_size()
 
 

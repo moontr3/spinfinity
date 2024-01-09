@@ -9,6 +9,7 @@
             "amount":     1,
             "recoil":     0.05,
             "shake":      0.5,
+            "sound":      "pistol",
             "projectile": {
                 "image":    "projectiles/bullet.png",
                 "size":     [24,8],
@@ -28,6 +29,7 @@
             "amount":     8,
             "recoil":     0.15,
             "shake":      2,
+            "sound":      "shotgun",
             "projectile": {
                 "image":    "projectiles/bullet.png",
                 "size":     [14,14],
@@ -47,6 +49,7 @@
             "amount":     1,
             "recoil":     0.03,
             "shake":      0.3,
+            "sound":      "assault_rifle",
             "projectile": {
                 "image":    "projectiles/bullet.png",
                 "size":     [16,5],
@@ -55,6 +58,26 @@
                 "lifetime": [0.7, 0.8],
                 "hit":      "enemy",
                 "damage":   [10,15]
+            }
+        },
+        {
+            "cost":       20000,
+            "image":      "weapons/minigun.png",
+            "size":       [40,15],
+            "speed":      0.02,
+            "range":      2,
+            "amount":     1,
+            "recoil":     0.01,
+            "shake":      0.2,
+            "sound":      "minigun",
+            "projectile": {
+                "image":    "projectiles/bullet.png",
+                "size":     [20,4],
+                "speed":    [25,35],
+                "slowdown": 0,
+                "lifetime": [0.7, 0.8],
+                "hit":      "enemy",
+                "damage":   [5,10]
             }
         }
     ],
