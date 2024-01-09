@@ -13,7 +13,6 @@
     "selected": "Selected",
     "dps": "DMG/s",
     "play": "Play",
-    "scores": "Scores",
     "settings": "Settings",
     "credits": "Credits",
     "exit": "Exit",
@@ -21,5 +20,8 @@
     "dead": "DEAD",
     "resume": "Resume",
     "forfeit": "Forfeit",
-    "keep_holding": "Keep holding to confirm"
+    "keep_holding": "Keep holding to confirm",
+    "back": "Back",
+    "credits_roles": "Sprites\n\n\nFonts\n\n\nProgramming",
+    "credits_names": "moontr3\nStock images\n\nmoontr3\nzeeglo eYe/FS: elmoyenique\n\nmoontr3"
 }

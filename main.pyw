@@ -3171,59 +3171,178 @@ class Dungeon:
         self.update_ui()
 
 
-# level selector
+# menu stuff
         
 
-class Selector:
-    def __init__(self, elements:List[Tuple[str,any]], rect:pg.Rect):
+class BackButton:
+    def __init__(self, callback:Callable):
         '''
-        The same as a dropdown menu, but expanded indefinitely.
+        A little "Back" button at the top of most menus.
         '''
-        self.elements: List[Tuple[str,any]] = elements # list of elements
-        self.rect: pg.Rect = rect # rect of the selector
-        self.index: int = 0 # index of the currently selected element
+        self.callback: Callable = callback # on click callback
+        self.hovered: bool = False # is the mouse over the button
+        self.hover_key: float = 0.0 # mouse hover key animation
+        self.rect: pg.Rect = pg.Rect((0,0), (60,15)) # button rect
 
-        self.element_size: int = 10
-        self.scroll_offset: float = 0.0 # scroll offset
-        self.scroll_vel: float = 0.0 # scroll velocity
-        self.scroll_limit: (len(self.elements)-1)*self.element_size # scroll limit
-
-    @property
-    def selected(self):
-        '''Returns the currently selected element.'''
-        return self.elements[self.index][1]
-
-    def get_dim(self, px:int):
-        '''Returns the opacity of the element by Y position.'''
-        px -= self.rect.top
-        px = px/self.rect.size/2
-        if px > 1.0: px = 1-(px-1)
-        return int(easing.SineEaseIn(0,1,1).ease(px)*255)
-    
     def draw(self):
         '''
-        Draws the selector.
+        Draws the button.
         '''
-        pos = self.rect.centery-self.scroll_offset
-        for i in self.elements:
-            draw.text(
-                i[0], (self.rect.centerx, pos), opacity=self.get_dim(pos)
-            )
-            pos += self.element_size
-    
+        # bg
+        rect = pg.Rect((-1,-1), (51+self.hover_key*15,16))
+        color = [40+int(self.hover_key*60)]*3
+        pg.draw.rect(screen, color, rect, 0, 2)
+
+        # text
+        draw.text(save.locale.f('back'), [rect.right-5, rect.centery], h=1,v=0.5)
+        
     def update(self):
         '''
-        Updates the selector.
+        Updates the button.
         '''
-        # scroll
-        if mouse_wheel != 0.0 and self.rect.collidepoint(mouse_pos):
-            self.scroll_vel -= mouse_wheel*5
+        # hovering
+        self.hovered = self.rect.collidepoint(mouse_pos)
 
-        if self.scroll_vel != 0:
-            self.scroll_offset = max(0, min(self.scroll_limit, self.scroll_offset))
-            self.scroll_offset += self.scroll_vel
-            
-            self.scroll_vel = lerp(self.scroll_vel, 0, td*15)
+        if round(self.hover_key, 3) == int(self.hovered):
+            self.hover_key = int(self.hovered)
+        else:
+            self.hover_key = lerp(self.hover_key, int(self.hovered), td*15)
+
+        # clicking
+        if lmb_down and self.hovered:
+            self.callback()
+
+
+# settings
+        
+
+class Credits:
+    def __init__(self):
+        '''
+        Credits menu.
+        '''
+        self.animation: bool = False # whether the main menu animation is running
+        self.anim_key: float = 0.0 # main menu animation
+        self.back_button: BackButton = BackButton(self.back)
+
+    def back(self):
+        '''Returns to the main menu.'''
+        self.animation = True
+
+    def draw(self):
+        '''
+        Draws the menu.
+        '''
+        # back button
+        self.back_button.draw()
+
+        # roles
+        for index, i in enumerate(save.locale.f('credits_roles').split('\n')):
+            draw.text(i, (halfx-200, 110+index*20), v=0.5)
+
+        # names
+        for index, i in enumerate(save.locale.f('credits_names').split('\n')):
+            draw.text(
+                i, (halfx+200, 110+index*20), (160,160,160),
+                size=11,style='big', h=1, v=0.5
+            )
+
+        # dim
+        if self.anim_key > 0.0:
+            draw.image('black.png', size=(windowx,windowy), opacity=int(self.anim_key*255))
+
+    def update(self):
+        '''
+        Updates the menu.
+        '''
+        # back button
+        self.back_button.update()
+
+        # exiting on escape
+        if BACK_KEY in keysdown:
+            self.back()
+
+        # dim animation
+        if self.animation:
+            self.anim_key += td*3
+            if self.anim_key >= 1.0:
+                # switching menu
+                global app
+                app = MainMenu()
+        
+
+class Settings:
+    def __init__(self):
+        '''
+        Settings menu.
+        '''
+        self.animation: bool = False # whether the main menu animation is running
+        self.anim_key: float = 0.0 # main menu animation
+        self.back_button: BackButton = BackButton(self.back)
+
+    def back(self):
+        '''Returns to the main menu.'''
+        self.animation = True
+
+    def draw(self):
+        '''
+        Draws the menu.
+        '''
+        # back button
+        self.back_button.draw()
+
+        # dim
+        if self.anim_key > 0.0:
+            draw.image('black.png', size=(windowx,windowy), opacity=int(self.anim_key*255))
+
+    def update(self):
+        '''
+        Updates the menu.
+        '''
+        # back button
+        self.back_button.update()
+
+        # exiting on escape
+        if BACK_KEY in keysdown:
+            self.back()
+
+        # dim animation
+        if self.animation:
+            self.anim_key += td*3
+            if self.anim_key >= 1.0:
+                # switching menu
+                global app
+                app = MainMenu()
+
+
+# level selector
+
+
+class Map:
+    def __init__(self, map:MapData, rect:pg.Rect):
+        '''
+        Map in a map selector.
+        '''
+        self.map: MapData = map # map data
+        self.rect: pg.Rect = rect # rect
+
+    def draw(self):
+        '''
+        Draws the map.
+        '''
+
+    def update(self):
+        '''
+        Updates the map.
+        '''
+        # mouse hover
+        self.hovered = self.rect.collidepoint(mouse_pos)
+
+        # hover animation
+        if round(self.hover_key, 3) == int(self.hovered):
+            self.hover_key = int(self.hovered)
+        else:
+            self.hover_key = lerp(self.hover_key, int(self.hovered), td*10)
 
 
 class MapSelector:
@@ -3231,18 +3350,58 @@ class MapSelector:
         '''
         Map Selector.
         '''
+        self.animation: bool = False # whether the main menu animation is running
+        self.anim_key: float = 0.0 # main menu animation
+        self.end_menu = None # menu to spawn after the animation finishes
+        self.maps: List[Map] = [] # list of maps
+
+        self.back_button: BackButton = BackButton(self.back)
+
+    def back(self):
+        '''Returns to the main menu.'''
+        self.animation = True
+        self.end_menu = MainMenu()
+
+    def select(self, index:int):
+        '''Selects a map.'''
+        for i in self.maps:
+            i.selected = False
+        i[index].selected = True
 
     def draw(self):
         '''
         Draws the menu.
         '''
-        self.difficulties.draw()
+        # back button
+        self.back_button.draw()
+
+        # dim
+        if self.anim_key > 0.0:
+            draw.image('black.png', size=(windowx,windowy), opacity=int(self.anim_key*255))
 
     def update(self):
         '''
         Updates the menu.
         '''
-        self.difficulties.update()
+        # back button
+        self.back_button.update()
+
+        # exiting on escape
+        if BACK_KEY in keysdown:
+            self.back()
+
+        # dim animation
+        if self.animation:
+            self.anim_key += td*3
+            if self.anim_key >= 1.0:
+                # switching menu
+                if self.end_menu:
+                    global app
+                    app = self.end_menu
+                # error!!!
+                else:
+                    self.animation = False
+                    self.anim_key = 0.0
 
 
 # main menu
@@ -3311,7 +3470,7 @@ class Letter:
             pos = [self.position+shake[0], self.y+shake[1]]
             draw.text(
                 self.letter, pos, size=50+int(self.smooth_stamp_anim*50),
-                style='logo', h=0.5, v=0.5, shadows=[(0,-4)], antialias=True,
+                style='logo', h=0.5, v=0.5, antialias=True,
                 opacity=int(200-self.smooth_stamp_anim*200),
                 rotation=self.random_rotation*self.smooth_stamp_anim
             )
@@ -3322,7 +3481,7 @@ class Letter:
             pos = [self.position+shake[0], self.y+np.sin(self.sin)*7+shake[1]]
             draw.text(
                 self.letter, pos, size=50, style='logo',
-                h=0.5, v=0.5, shadows=[(0,-4)], antialias=True
+                h=0.5, v=0.5, antialias=True
             )
             # glow
             if self.shake > 0.0:
@@ -3387,13 +3546,13 @@ class MainMenuLogo:
 
 
 class MainMenuButton:
-    def __init__(self, image:str, text:str, pos:int, anim_offset:float, callback:Callable[[],None]):
+    def __init__(self, image:str, text:str, pos:int, anim_offset:float, callback:Callable):
         '''
         Main menu button.
         '''
         self.image: str = image # button image
         self.text: str = text # button locale index
-        self.callback: Callable[[],None] = callback # button callback
+        self.callback: Callable = callback # button callback
 
         self.position: int = pos # button x position
         self.y: int = halfy+50 # constant button y position
@@ -3466,11 +3625,10 @@ class MainMenu:
 
         self.logo: MainMenuLogo = MainMenuLogo() # logo
         self.buttons: List[MainMenuButton] = [
-            MainMenuButton('icons/play.png',     "play",     halfx-200, 0.0, self.play),
-            MainMenuButton('icons/scores.png',   "scores",   halfx-100, 0.3, self.scores),
-            MainMenuButton('icons/settings.png', "settings", halfx,     0.6, self.settings),
-            MainMenuButton('icons/credits.png',  "credits",  halfx+100, 0.9, self.credits),
-            MainMenuButton('icons/exit.png',     "exit",     halfx+200, 1.2, self.exit),
+            MainMenuButton('icons/play.png',     "play",     halfx-150, 0.0, self.play),
+            MainMenuButton('icons/settings.png', "settings", halfx-50,  0.4, self.settings),
+            MainMenuButton('icons/credits.png',  "credits",  halfx+50,  0.9, self.credits),
+            MainMenuButton('icons/exit.png',     "exit",     halfx+150, 1.2, self.exit),
         ] # main menu buttons
         self.animation: bool = False # whether the main menu animation is running
         self.anim_key: float = 0.0 # main menu animation
@@ -3482,18 +3640,16 @@ class MainMenu:
         '''Callback for the play button.'''
         self.animation = True
         self.end_menu = MapSelector()
-
-    def scores(self):
-        '''Callback for the scores button.'''
-        self.animation = True
         
     def settings(self):
         '''Callback for the settings button.'''
         self.animation = True
+        self.end_menu = Settings()
 
     def credits(self):
         '''Callback for the credits button.'''
         self.animation = True
+        self.end_menu = Credits()
 
     def exit(self):
         '''Callback for the exit button.'''

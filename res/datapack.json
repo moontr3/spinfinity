@@ -60,10 +60,22 @@
     ],
     "maps": [
         {
-            "image":        "maps/map1.png",
+            "image":        "maps/cave.png",
             "size":         [20,10],
             "spawn":        [10,5],
             "enemy_spawns": [[1,8], [18,1], [18,8], [1,1]]
+        },
+        {
+            "image":        "maps/house.png",
+            "size":         [15,15],
+            "spawn":        [1,7.5],
+            "enemy_spawns": [[1,14], [14,1], [14,8], [1,1]]
+        },
+        {
+            "image":        "maps/hospital.png",
+            "size":         [10,20],
+            "spawn":        [5,20],
+            "enemy_spawns": [[0,19], [9,0], [9,0], [0,0]]
         }
     ],
     "player": {

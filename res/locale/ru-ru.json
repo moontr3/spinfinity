@@ -13,7 +13,6 @@
     "selected": "Выбрано",
     "dps": "Урон/с",
     "play": "Играть",
-    "scores": "Рекорды",
     "settings": "Настройки",
     "credits": "Авторы",
     "exit": "Выход",
@@ -21,5 +20,8 @@
     "dead": "МЁРТВ",
     "resume": "Продолжить",
     "forfeit": "Сдаться",
-    "keep_holding": "Удерживайте для продолжения"
+    "keep_holding": "Удерживайте для продолжения",
+    "back": "Назад",
+    "credits_roles": "Спрайты\n\n\nШрифты\n\n\nПрограммирование",
+    "credits_names": "moontr3\nСтоковые изображения\n\nmoontr3\nzeeglo eYe/FS: elmoyenique\n\nmoontr3"
 }
